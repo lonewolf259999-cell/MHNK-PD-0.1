@@ -2,16 +2,20 @@
 // 💾 config/actions.js — Logic บันทึกต่างๆ ลง Sheet
 // =================================================================
 
+const { EmbedBuilder } = require('discord.js');
 const sheetConfig = require('../utils/sheetConfig');
 const { createPanelEmbed, buildPanelComponents } = require('./panelBuilder');
 const countCase = require('../features/CountCase/CountCase');
+const { runResendMissed } = require('../features/get-tags/resendMissed');
+const logCase = require('../features/get-tags/logCase');
+const { resendStates } = require('./resendState');
 
 // --- รีเฟรช config ---
 async function handleRefreshConfig(interaction) {
     await sheetConfig.reloadSheetConfig();
     await interaction.message.edit({
         embeds: [createPanelEmbed()],
-        components: buildPanelComponents()
+        components: buildPanelComponents(interaction.guildId)
     });
 }
 
@@ -65,8 +69,86 @@ async function tryRefreshPanelMessage(interaction) {
     if (interaction.message) {
         await interaction.message.edit({
             embeds: [createPanelEmbed()],
-            components: buildPanelComponents()
+            components: buildPanelComponents(interaction.guildId)
         }).catch(() => null);
+    }
+}
+
+// --- ส่งย้อนหลัง BYPD (toggle ส่ง/หยุด) ---
+async function handleResendBypd(client, interaction) {
+    const guildId = interaction.guildId;
+    const state = resendStates.get(guildId);
+
+    // ✅ ถ้ากำลังรันอยู่ → หยุด
+    if (state?.isRunning) {
+        state.abortController?.abort();
+        resendStates.set(guildId, { isRunning: false, abortController: null });
+
+        // ✅ อัปเดต panel เปลี่ยนปุ่มกลับเป็น "ส่งย้อนหลัง"
+        await refreshPanel(guildId, interaction);
+
+        await interaction.editReply({
+            content: `⏹️ **หยุดทำงานแล้ว**\n` +
+                `📊 ส่งสำเร็จ: ${state.totalSent || 0} | ล้มเหลว: ${state.totalFailed || 0}`
+        });
+        return;
+    }
+
+    // ✅ เริ่มส่งย้อนหลัง
+    const abortController = new AbortController();
+    const newState = {
+        isRunning: true,
+        abortController,
+        totalFound: 0,
+        totalSent: 0,
+        totalFailed: 0
+    };
+    resendStates.set(guildId, newState);
+
+    // ✅ อัปเดต panel เปลี่ยนปุ่มเป็น "หยุดทำงาน"
+    await refreshPanel(guildId, interaction);
+
+    await interaction.editReply({
+        content: '🔄 **กำลังส่งย้อนหลัง BYPD...**\n⏳ กำลังสแกนห้อง Log...'
+    });
+
+    try {
+        const result = await runResendMissed(client, interaction, abortController.signal);
+
+        newState.isRunning = false;
+        newState.abortController = null;
+
+        // ✅ อัปเดต panel เปลี่ยนปุ่มกลับเป็น "ส่งย้อนหลัง"
+        await refreshPanel(guildId, interaction);
+
+        await interaction.editReply({
+            content: result.message
+        });
+    } catch (err) {
+        newState.isRunning = false;
+        newState.abortController = null;
+
+        // ✅ อัปเดต panel เปลี่ยนปุ่มกลับเป็น "ส่งย้อนหลัง"
+        await refreshPanel(guildId, interaction);
+
+        console.error('❌ [handleResendBypd] Error:', err);
+        await interaction.editReply({
+            content: `❌ **เกิดข้อผิดพลาด:** ${err.message}`
+        });
+    }
+}
+
+// ✅ รีเฟรช panel เพื่ออัปเดต label ปุ่ม
+async function refreshPanel(guildId, interaction) {
+    try {
+        if (interaction?.message) {
+            await interaction.message.edit({
+                embeds: [createPanelEmbed()],
+                components: buildPanelComponents(guildId)
+            });
+        }
+    } catch (refreshErr) {
+        console.error('❌ [handleResendBypd] refreshPanel ล้มเหลว:', refreshErr.message);
     }
 }
 
@@ -77,5 +159,7 @@ module.exports = {
     handleWelcomeSave,
     handleBypdSave,
     handleRegistrySave,
-    tryRefreshPanelMessage
+    tryRefreshPanelMessage,
+    handleResendBypd,
+    refreshPanel
 };

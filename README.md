@@ -2,10 +2,6 @@
 
 ## โครงสร้าง
 
-# mahanakorn-bot-PD-0.2
-
-## โครงสร้าง
-
 ```
 mahanakorn-bot-PD-0.2
 ├── index.js                      ← จุดเริ่มต้น รันบอท
@@ -19,7 +15,6 @@ mahanakorn-bot-PD-0.2
 │   └── featureHandler.js         ← โหลด features ทั้งหมดอัตโนมัติ (หา <folder>/<folder>.js)
 │
 ├── features/
-│   ├── configPanel/              ← ❌ ย้ายไป config/ แล้ว (ไม่มีแล้ว)
 │   ├── CountAuto/                ← นับแต้มอัตโนมัติจากแท็ก (@mention → Google Sheet)
 │   │   ├── CountAuto.js         ← Event handlers + Queue (เรียก logic/)
 │   │   └── logic/               ← โค้ดย่อยของ CountAuto
@@ -34,7 +29,11 @@ mahanakorn-bot-PD-0.2
 │   │   └── EditTAG.js
 │   │
 │   ├── get-tags/                 ← ดึงแท็กจากข้อความ BYPD (รับจากบอท + คน)
-│   │   └── get-tags.js
+│   │   ├── get-tags.js          ← Event Listener messageCreate
+│   │   ├── processAndSend.js    ← Logic ประมวลผล BYPD + ส่ง Embed
+│   │   ├── logCase.js           ← จัดการ ID + Sheet + IDMissedLog + Cache
+│   │   ├── resendMissed.js      ← ส่งย้อนหลัง + ลงชีต batch
+│   │   └── IDMissedLog.json     ← ไฟล์ชั่วคราว (บอทตาย/หลับ)
 │   │
 │   ├── logtime/                  ← บันทึกเวลาเข้าเวร → NamePD
 │   │   └── logtime.js
@@ -51,9 +50,10 @@ mahanakorn-bot-PD-0.2
 │
 ├── config/
 │   ├── configPanel.js            ← ตัวหลักแผงควบคุม (ลงทะเบียน /recount)
-│   ├── panelBuilder.js           ← สร้าง Embed + ปุ่ม 6 ปุ่ม
-│   ├── modals.js                 ← สร้าง Modal ตั้งค่า
-│   └── actions.js                ← Logic บันทึกตั้งค่าลง Sheet
+│   ├── panelBuilder.js           ← สร้าง Embed + ปุ่ม 7 ปุ่ม
+│   ├── modals.js                 ← สร้าง Modal 4 แบบ
+│   ├── actions.js                ← Logic บันทึกตั้งค่า + handleResendBypd
+│   └── resendState.js            ← Shared state สถานะ resend (Map guildId → state)
 │
 ├── utils/
 │   ├── logger.js                 ← ระบบ log (winston) → logs/
@@ -71,6 +71,53 @@ mahanakorn-bot-PD-0.2
 # └── error.log
 ```
 
+---
+
+## 🔥 ระบบ get-tags (BYPD) — อัปเดตล่าสุด
+
+### การทำงานปกติ (โหมด 1)
+```
+messageCreate → เจอ "BYPD" → processAndSend()
+    → สกัด tag เจ้าหน้าที่
+    → แยกข้อมูล (ผู้ต้องหา, คดี, จำคุก, ค่าปรับ, เวลา)
+    → ส่ง Embed ไปห้องปลายทาง
+    → React ✅ ในโพสต้นทาง
+    → เก็บ ID ลง Sheet + ลบจาก IDMissedLog
+```
+
+### โหมดส่งย้อนหลัง (โหมด 2) — สำหรับบอทหลับ/ตาย
+```
+กดปุ่ม "🔄 ส่งย้อนหลัง BYPD"
+    → โหลดแคชจาก Sheet + IDMissedLog.json
+    → สแกนห้อง Log ย้อนหลัง (สูงสุด 500 ข้อความ)
+    → กรองเฉพาะ BYPD ที่ยังไม่อยู่ในแคช
+    → ส่งข้อความ (เก็บ ID ลง IDMissedLog แทน Sheet)
+    → ส่งหมด → batch IDMissedLog ขึ้น Sheet → ล้าง IDMissedLog
+    → ปุ่มเปลี่ยนเป็น "⏹️ หยุดส่งย้อนหลัง" (กดอีกครั้งเพื่อหยุด)
+```
+
+### ไฟล์ที่เกี่ยวข้อง
+
+| ไฟล์ | หน้าที่ |
+|------|--------|
+| `get-tags.js` | Event Listener `messageCreate` เช็คคำว่า BYPD |
+| `processAndSend.js` | Logic ประมวลผล + ส่ง Embed (รองรับ `isResendMode`) |
+| `logCase.js` | จัดการ ID (cache, Sheet, IDMissedLog.json) + React ✅ |
+| `resendMissed.js` | ส่งย้อนหลัง + batch ลง Sheet + ล้าง IDMissedLog |
+| `config/actions.js` | `handleResendBypd` — toggle ส่ง/หยุด |
+| `config/resendState.js` | Shared state (`Map`) เก็บสถานะ resend ของแต่ละ guild |
+| `config/panelBuilder.js` | สร้างปุ่ม "ส่งย้อนหลัง BYPD" (เปลี่ยน label ตามสถานะ) |
+| `config/configPanel.js` | Handler ปุ่ม `btn_resend_bypd` |
+
+### ฟีเจอร์เด่น
+- ✅ **ปุ่ม toggle**: กดครั้งแรกเริ่มส่ง → กดอีกครั้งหยุด
+- ✅ **AbortController**: หยุดกลางทางได้ (ระหว่างสแกน + ส่ง)
+- ✅ **Dual logging**: โหมดปกติเก็บลง Sheet / โหมด resend เก็บลง IDMissedLog แล้ว batch ขึ้นทีหลัง
+- ✅ **Circular dependency free**: ใช้ `resendState.js` เป็น shared state
+- ✅ **Retry + lock**: ป้องกันส่งซ้ำ + retry อัตโนมัติ 3 ครั้ง
+
+---
+
 ## หลักการ
 
 1. `featureHandler` หาแค่ `<folder>/<folder>.js` ใน `features/` — ข้างในแยกกี่ไฟล์ก็ไม่สน
@@ -81,6 +128,7 @@ mahanakorn-bot-PD-0.2
 6. `logs/` เก็บ log จาก winston (สร้างเอง ไม่ต้องสร้าง)
 7. `index.js` เรียก `loadFeatures(client)` + `loadConfig(client)` ก็พอ
 8. เพิ่ม feature ใหม่ = สร้างโฟลเดอร์ + ไฟล์ชื่อเดียวกันใน `features/`
+9. `config/resendState.js` เป็น shared state — **ห้ามสร้าง Map ใหม่** ในไฟล์อื่น (import มาใช้แทน)
 
 ## วิธีรัน
 
@@ -95,7 +143,7 @@ node index.js
 | CountAuto | นับแต้มอัตโนมัติจากแท็ก @mention → Google Sheet | `features/CountAuto/CountAuto.js` + `logic/` |
 | CountCase | นับยอดข้อความเก่า (เรียกจาก /recount) | `features/CountCase/CountCase.js` |
 | EditTAG | แก้ไขแท็กคนในข้อความ (+เพิ่ม, -ลบ) | `features/EditTAG/EditTAG.js` |
-| get-tags | ดึงแท็กจากข้อความ BYPD → ส่ง Embed | `features/get-tags/get-tags.js` |
+| get-tags | ดึงแท็กจากข้อความ BYPD → ส่ง Embed + ส่งย้อนหลัง | `features/get-tags/get-tags.js` + ไฟล์ใน `get-tags/` |
 | logtime | บันทึกเวลาเข้าเวร → NamePD | `features/logtime/logtime.js` |
 | reload | คำสั่งรีโหลด config (!reload) | `features/reload/reload.js` |
 | testchat | ทดสอบส่ง embed (พิม c) | `features/testchat/testchat.js` |
@@ -105,10 +153,11 @@ node index.js
 
 | ไฟล์ | หน้าที่ |
 |------|--------|
-| `config/configPanel.js` | รับ interaction, ลงทะเบียน /recount |
-| `config/panelBuilder.js` | สร้าง Embed + ปุ่ม 6 ปุ่ม |
-| `config/modals.js` | สร้าง Modal 4 แบบ |
-| `config/actions.js` | Logic บันทึกตั้งค่าลง Sheet |
+| `config/configPanel.js` | รับ interaction, ลงทะเบียน /recount, handler ปุ่มทั้งหมด |
+| `config/panelBuilder.js` | สร้าง Embed + ปุ่ม 7 ปุ่ม (รวมปุ่มส่งย้อนหลัง BYPD) |
+| `config/modals.js` | สร้าง Modal 4 แบบ (นับเคส, ต้อนรับ, BYPD, ชีต PD) |
+| `config/actions.js` | Logic บันทึกตั้งค่าลง Sheet + `handleResendBypd` |
+| `config/resendState.js` | Shared state (`Map`) เก็บสถานะ resend ของแต่ละ guild |
 
 ## สรุป CountAuto Logic
 
@@ -138,3 +187,22 @@ node index.js
 - `registerCommands.js` **ถูกลบแล้ว** — configPanel ลงทะเบียนเอง
 - `features/configPanel/` **ถูกลบแล้ว** — ย้ายไป `config/` แล้ว
 - `tests/` **ถูกลบแล้ว** — ไม่จำเป็น
+- `config/resendState.js` **ใหม่** — shared state สำหรับ resend BYPD (ห้ามสร้าง Map ใหม่)
+- `features/get-tags/resendMissed.js` **ใหม่** — ส่งย้อนหลัง + batch ลง Sheet
+
+## 🔄 สถานะโปรเจกต์
+
+### เสร็จสมบูรณ์
+- ✅ ระบบ get-tags (BYPD) ครบทุกฟีเจอร์
+- ✅ ปุ่มส่งย้อนหลัง BYPD (toggle ส่ง/หยุด)
+- ✅ ระบบ Config Panel ครบ 7 ปุ่ม
+- ✅ ระบบลงทะเบียน + ต้อนรับ
+- ✅ ระบบนับเคสอัตโนมัติ (CountAuto)
+- ✅ ระบบนับยอดข้อความเก่า (CountCase)
+- ✅ ระบบแก้ไขแท็ก (EditTAG)
+- ✅ ระบบบันทึกเวลาเข้าเวร (logtime)
+- ✅ ระบบ reload config (!reload)
+- ✅ Keep-alive + Watchdog + Safe restart
+
+### รอดำเนินการ
+- ⏳ ไม่มี (ทุกอย่างเสร็จแล้ว!)

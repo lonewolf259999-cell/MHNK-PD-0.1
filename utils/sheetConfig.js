@@ -13,9 +13,12 @@ const CONFIG_SHEET_NAME = 'config';
 const DEFAULTS = {
     WELCOME_CHANNEL_ID: '1507105291207053496',
     LOG_CHANNEL_ID: '1507105291207053497',
-    LOGTIME_CHANNEL_ID: '1507877337675333794',
+    LOGTIME_CHANNEL_ID: '1508658261606404226',
     BYPD_SCAN_CHANNEL_ID: '1507382337212780604',
     BYPD_SEND_CHANNEL_ID: '1507131104245710868',
+    BYPD_LOG_CHANNEL_ID: '1507877337675333794',
+    LOG_SHEET_ID: '1YV_BIFiilxUM9XrW1cSYZTOgne1JnKoCXtRw7PUCCGs',
+    LOG_SHEET_NAME: 'log-case',
     REGISTRY_SPREADSHEET_ID: '1WjK5FkKr6C_X6isFgIIf_3VUlEOhgA2NCxfbKalcQOs',
     REGISTRY_SHEET_NAME: 'NamePD',
     REGISTRY_OUT_SHEET_NAME: 'OutDC'
@@ -71,7 +74,10 @@ function buildViews(data) {
         logChannelId: data.LOG_CHANNEL_ID || DEFAULTS.LOG_CHANNEL_ID,
         logtimeChannelId: data.LOGTIME_CHANNEL_ID || DEFAULTS.LOGTIME_CHANNEL_ID,
         bypdScanChannelId: data.BYPD_SCAN_CHANNEL_ID || DEFAULTS.BYPD_SCAN_CHANNEL_ID,
-        bypdSendChannelId: data.BYPD_SEND_CHANNEL_ID || DEFAULTS.BYPD_SEND_CHANNEL_ID
+        bypdSendChannelId: data.BYPD_SEND_CHANNEL_ID || DEFAULTS.BYPD_SEND_CHANNEL_ID,
+        bypdLogChannelId: data.BYPD_LOG_CHANNEL_ID || DEFAULTS.BYPD_LOG_CHANNEL_ID,
+        logSheetId: data.LOG_SHEET_ID || DEFAULTS.LOG_SHEET_ID,
+        logSheetName: data.LOG_SHEET_NAME || DEFAULTS.LOG_SHEET_NAME
     };
 }
 
@@ -101,6 +107,9 @@ async function loadSheetConfig() {
         loaded = true;
 
         console.log('✅ [CONFIG] โหลด config จาก Google Sheet สำเร็จ');
+        console.log(`📌 BYPD Log Channel: ${views.bypdLogChannelId || '(ยังไม่ตั้ง)'}`);
+        console.log(`📌 Log Sheet ID: ${views.logSheetId || '(ยังไม่ตั้ง)'}`);
+        console.log(`📌 Log Sheet Name: ${views.logSheetName || '(ยังไม่ตั้ง)'}`);
         console.log(`📌 ชีตนับเคส: ${views.count.SPREADSHEET_ID || '(ยังไม่ตั้ง)'}`);
         console.log(`📌 ชีตลงทะเบียน: ${views.registry.spreadsheetId}`);
         return views;
@@ -154,6 +163,18 @@ function getBypdSendChannelId() {
     return views.bypdSendChannelId;
 }
 
+function getBypdLogChannelId() {
+    return views.bypdLogChannelId;
+}
+
+function getLogSheetId() {
+    return views.logSheetId;
+}
+
+function getLogSheetName() {
+    return views.logSheetName;
+}
+
 async function writeConfigKeys(updates) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
@@ -181,12 +202,12 @@ async function writeConfigKeys(updates) {
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-    await sheets.spreadsheets.values.update({
-        spreadsheetId: CONFIG_SHEET_ID,
-        range: `${CONFIG_SHEET_NAME}!A1`,
-        valueInputOption: 'USER_ENTERED',
-        resource: { values: newRows }
-    });
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: CONFIG_SHEET_ID,
+                range: `${CONFIG_SHEET_NAME}!A1`,
+                valueInputOption: 'USER_ENTERED',
+                resource: { values: newRows }
+            });
             break;
         } catch (err) {
             lastError = err;
@@ -222,7 +243,9 @@ module.exports = {
     getLogtimeChannelId,
     getBypdScanChannelId,
     getBypdSendChannelId,
+    getBypdLogChannelId,
+    getLogSheetId,
+    getLogSheetName,
     writeConfigKeys,
     writeCountConfigRows
 };
-

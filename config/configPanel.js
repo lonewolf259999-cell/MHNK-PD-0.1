@@ -6,8 +6,7 @@ const { REST, Routes, Events, SlashCommandBuilder, MessageFlags } = require('dis
 const { handleInteractionError } = require('../utils/interactionSafe');
 const { createPanelEmbed, buildPanelComponents, sendPanelToChannel } = require('./panelBuilder');
 const { buildCountModal, buildWelcomeModal, buildBypdModal, buildRegistryModal } = require('./modals');
-const { handleRefreshConfig, handleManualCount, handleCountSave, handleWelcomeSave, handleBypdSave, handleRegistrySave, tryRefreshPanelMessage } = require('./actions');
-
+const { handleRefreshConfig, handleManualCount, handleCountSave, handleWelcomeSave, handleBypdSave, handleRegistrySave, tryRefreshPanelMessage, handleResendBypd } = require('./actions');
 const EPHEMERAL = MessageFlags.Ephemeral;
 
 const CONFIG_PANEL_IDS = new Set([
@@ -17,6 +16,7 @@ const CONFIG_PANEL_IDS = new Set([
     'btn_cfg_welcome',
     'btn_cfg_bypd',
     'btn_cfg_registry',
+    'btn_resend_bypd',        // ✅ ปุ่มส่งย้อนหลัง BYPD
     'modal_cfg_count',
     'modal_cfg_welcome',
     'modal_cfg_bypd',
@@ -132,6 +132,18 @@ module.exports = async (client) => {
                 return interaction.showModal(buildRegistryModal()).catch(err => {
                     console.error('❌ [configPanel] showModal ชีตPD ล้มเหลว:', err.message);
                 });
+            }
+
+            // --- ปุ่ม: ส่งย้อนหลัง BYPD (toggle ส่ง/หยุด) ---
+            if (interaction.customId === 'btn_resend_bypd') {
+                if (!await safeDefer(interaction, { flags: EPHEMERAL })) return;
+                try {
+                    await handleResendBypd(client, interaction);
+                } catch (err) {
+                    console.error('❌ [configPanel] ส่งย้อนหลัง BYPD ล้มเหลว:', err);
+                    await interaction.editReply({ content: `❌ เกิดข้อผิดพลาด: ${err.message}` });
+                }
+                return;
             }
 
             // --- Modal Submit: นับเคส ---

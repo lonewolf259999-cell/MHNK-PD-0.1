@@ -4,6 +4,13 @@
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const sheetConfig = require('../utils/sheetConfig');
+const { resendStates } = require('./resendState');
+
+// ✅ ตรวจสอบว่ากำลัง resend อยู่หรือไม่ (สำหรับเปลี่ยน label ปุ่ม)
+function isResendRunning(guildId) {
+    const state = resendStates?.get(guildId);
+    return state?.isRunning || false;
+}
 
 function ch(id) {
     return id ? `<#${id}>` : '`ยังไม่ระบุ`';
@@ -37,7 +44,13 @@ function createPanelEmbed() {
         .setFooter({ text: 'กดปุ่มด้านล่างเพื่อตั้งค่าหรือเริ่มนับข้อความเก่า' });
 }
 
-function buildPanelComponents() {
+async function sendPanelToChannel(channel) {
+    return channel.send({ embeds: [createPanelEmbed()], components: buildPanelComponents(channel.guild?.id) });
+}
+
+function buildPanelComponents(guildId) {
+    const running = isResendRunning(guildId);
+
     return [
         new ActionRowBuilder().addComponents(
             btn('btn_trigger_manual_count', 'เริ่มนับข้อความเก่า', ButtonStyle.Primary, '⭐'),
@@ -48,6 +61,13 @@ function buildPanelComponents() {
             btn('btn_cfg_bypd',      'ตั้งค่า — BYPD',    ButtonStyle.Secondary, '🆔'),
             btn('btn_cfg_registry',  'ตั้งค่า — ชีต PD', ButtonStyle.Secondary, '📋'),
             btn('btn_refresh_config','รีเฟรช config',   ButtonStyle.Success,  '🔄')
+        ),
+        // ✅ แถวใหม่: ปุ่มส่งย้อนหลัง BYPD (toggle ส่ง/หยุด)
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('btn_resend_bypd')
+                .setLabel(running ? '⏹️ หยุดทำงาน' : '🔄 ส่งย้อนหลัง BYPD')
+                .setStyle(running ? ButtonStyle.Danger : ButtonStyle.Primary)
         )
     ];
 }
@@ -58,10 +78,6 @@ function btn(customId, label, style, emoji) {
         .setLabel(label)
         .setStyle(style)
         .setEmoji(emoji);
-}
-
-async function sendPanelToChannel(channel) {
-    return channel.send({ embeds: [createPanelEmbed()], components: buildPanelComponents() });
 }
 
 module.exports = { createPanelEmbed, buildPanelComponents, sendPanelToChannel };
