@@ -11,17 +11,17 @@ const CONFIG_SHEET_ID = '1YV_BIFiilxUM9XrW1cSYZTOgne1JnKoCXtRw7PUCCGs';
 const CONFIG_SHEET_NAME = 'config';
 
 const DEFAULTS = {
-    WELCOME_CHANNEL_ID: '1507105291207053496',
-    LOG_CHANNEL_ID: '1507105291207053497',
-    LOGTIME_CHANNEL_ID: '1508658261606404226',
-    BYPD_SCAN_CHANNEL_ID: '1507382337212780604',
-    BYPD_SEND_CHANNEL_ID: '1507131104245710868',
-    BYPD_LOG_CHANNEL_ID: '1507877337675333794',
-    LOG_SHEET_ID: '1YV_BIFiilxUM9XrW1cSYZTOgne1JnKoCXtRw7PUCCGs',
-    LOG_SHEET_NAME: 'log-case',
-    REGISTRY_SPREADSHEET_ID: '1WjK5FkKr6C_X6isFgIIf_3VUlEOhgA2NCxfbKalcQOs',
-    REGISTRY_SHEET_NAME: 'NamePD',
-    REGISTRY_OUT_SHEET_NAME: 'OutDC'
+    WELCOME_CHANNEL_ID: '',
+    LOG_CHANNEL_ID: '',
+    LOGTIME_CHANNEL_ID: '',
+    BYPD_SCAN_CHANNEL_ID: '',
+    BYPD_SEND_CHANNEL_ID: '',
+    BYPD_LOG_CHANNEL_ID: '',
+    LOG_SHEET_ID: '',
+    LOG_SHEET_NAME: '',
+    REGISTRY_SPREADSHEET_ID: '',
+    REGISTRY_SHEET_NAME: '',
+    REGISTRY_OUT_SHEET_NAME: ''
 };
 
 let rawData = {};
@@ -59,7 +59,9 @@ function parseCountChannels(data) {
 }
 
 function buildViews(data) {
-    return {
+    const warnings = [];
+
+    const result = {
         count: {
             SPREADSHEET_ID: data.SPREADSHEET_ID || '',
             SHEET_NAME: data.SHEET_NAME || '',
@@ -79,6 +81,42 @@ function buildViews(data) {
         logSheetId: data.LOG_SHEET_ID || DEFAULTS.LOG_SHEET_ID,
         logSheetName: data.LOG_SHEET_NAME || DEFAULTS.LOG_SHEET_NAME
     };
+
+    // ✅ เช็คค่าที่ยังว่าง แล้วเพิ่ม warning
+    const requiredFields = [
+        ['welcomeChannelId', 'WELCOME_CHANNEL_ID'],
+        ['logChannelId', 'LOG_CHANNEL_ID'],
+        ['logtimeChannelId', 'LOGTIME_CHANNEL_ID'],
+        ['bypdScanChannelId', 'BYPD_SCAN_CHANNEL_ID'],
+        ['bypdSendChannelId', 'BYPD_SEND_CHANNEL_ID'],
+        ['bypdLogChannelId', 'BYPD_LOG_CHANNEL_ID'],
+        ['logSheetId', 'LOG_SHEET_ID'],
+        ['logSheetName', 'LOG_SHEET_NAME'],
+        ['registry.spreadsheetId', 'REGISTRY_SPREADSHEET_ID'],
+        ['registry.sheetName', 'REGISTRY_SHEET_NAME'],
+        ['registry.outSheetName', 'REGISTRY_OUT_SHEET_NAME']
+    ];
+
+    for (const [field, configKey] of requiredFields) {
+        let value;
+        if (field.includes('.')) {
+            const parts = field.split('.');
+            value = result[parts[0]]?.[parts[1]];
+        } else {
+            value = result[field];
+        }
+        if (!value || !value.trim()) {
+            warnings.push(`⚠️ [CONFIG WARNING] ${configKey} ยังไม่ได้ตั้งค่า — ไม่มีใน Sheet และ DEFAULTS`);
+        }
+    }
+
+    if (warnings.length > 0) {
+        console.log('\n🔶 === Config Warnings ===');
+        warnings.forEach(w => console.log(w));
+        console.log('🔶 กรุณาตั้งค่าใน Google Sheet แท็บ config แล้วกดปุ่ม รีเฟรช config\n');
+    }
+
+    return result;
 }
 
 let views = buildViews({});
@@ -249,3 +287,4 @@ module.exports = {
     writeConfigKeys,
     writeCountConfigRows
 };
+

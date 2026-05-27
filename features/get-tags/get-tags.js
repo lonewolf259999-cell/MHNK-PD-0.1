@@ -3,9 +3,14 @@
 // =================================================================
 
 const { processAndSend } = require('./processAndSend');
+const sheetConfig = require('../../utils/sheetConfig');
 
 module.exports = async (client) => {
     client.on('messageCreate', async (message) => {
+        // ✅ Filter: เฉพาะห้อง BYPD_SCAN_CHANNEL_ID เท่านั้น
+        const scanChannelId = sheetConfig.getBypdScanChannelId();
+        if (scanChannelId && message.channel.id !== scanChannelId) return;
+
         // ข้ามข้อความที่ไม่มีเนื้อหา
         const hasContent = message.content?.trim();
         const hasEmbed = message.embeds.length > 0;

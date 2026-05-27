@@ -15,6 +15,7 @@ const {
 const { registerMemberToSheet, moveMemberToOutSheet, isAlreadyRegistered } = require('./sheetManager');
 const sheetConfig = require('../../utils/sheetConfig');
 const { handleInteractionError } = require('../../utils/interactionSafe');
+const rateLimiter = require('../../utils/rateLimiter');
 
 module.exports = async (client) => {
 
@@ -85,13 +86,23 @@ module.exports = async (client) => {
         if (interaction.isButton()) {
             if (interaction.customId === 'btn_register_pd') {
 
-                const registered = await isAlreadyRegistered(interaction.user.id);
-                if (registered) {
+                    // ✅ Rate limiter: จำกัดการกดปุ่มลงทะเบียน
+                    const limitCheck = rateLimiter.check(interaction.user.id, 'register');
+                    if (!limitCheck.allowed) {
+                        const seconds = Math.ceil(limitCheck.resetIn / 1000);
                     return await interaction.reply({
-                        content: '❌ คุณลงทะเบียนไปแล้ว ไม่สามารถลงทะเบียนซ้ำได้ครับ!',
+                            content: `⏳ กรุณารอ **${seconds}** วินาที ก่อนลงทะเบียนใหม่`,
                         flags: [MessageFlags.Ephemeral]
                     });
                 }
+
+                    const registered = await isAlreadyRegistered(interaction.user.id);
+                    if (registered) {
+                        return await interaction.reply({
+                            content: '❌ คุณลงทะเบียนไปแล้ว ไม่สามารถลงทะเบียนซ้ำได้ครับ!',
+                            flags: [MessageFlags.Ephemeral]
+                        });
+                    }
 
                 const modal = new ModalBuilder()
                     .setCustomId('modal_register_pd')
@@ -105,7 +116,7 @@ module.exports = async (client) => {
                     .setPlaceholder('กรุณากรอกชื่อในเกมของคุณเป็นภาษาอังกฤษ')
                     .setRequired(true);
 
-                // ช่องที่ 2: เบอร์โทร IC (ส่งไปเฉพาะห้อง Log ไม่ลงชีต)
+                    // ช่องที่ 2: เบอร์โทร IC
                 const icPhoneInput = new TextInputBuilder()
                     .setCustomId('input_ic_phone')
                     .setLabel("เบอร์โทร IC")
@@ -113,7 +124,7 @@ module.exports = async (client) => {
                     .setPlaceholder('กรุณากรอกเบอร์โทรศัพท์ในเกม')
                     .setRequired(true);
 
-                // ช่องที่ 3: อายุ OOC (ส่งไปเฉพาะห้อง Log ไม่ลงชีต)
+                    // ช่องที่ 3: อายุ OOC
                 const oocAgeInput = new TextInputBuilder()
                     .setCustomId('input_ooc_age')
                     .setLabel("อายุ OOC (ชีวิตจริง)")

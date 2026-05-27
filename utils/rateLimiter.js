@@ -36,7 +36,6 @@ function setConfig(featureName, config) {
  */
 function check(identifier, featureName = identifier) {
     const config = configs.get(featureName);
-
     if (!config) {
         // ถ้าไม่มี config ให้ผ่านได้เลย
         return { allowed: true, remaining: Infinity, resetIn: 0 };
@@ -70,7 +69,6 @@ function check(identifier, featureName = identifier) {
 
     // เพิ่มจำนวน
     record.count++;
-
     return {
         allowed: true,
         remaining: config.maxRequests - record.count,
@@ -86,13 +84,11 @@ function check(identifier, featureName = identifier) {
 function createMiddleware(featureName) {
     return async (interaction, next) => {
         const userId = interaction.user?.id || interaction.author?.id;
-
         if (!userId) {
             return next();
         }
 
         const result = check(userId, featureName);
-
         if (!result.allowed) {
             const seconds = Math.ceil(result.resetIn / 1000);
             await interaction.reply({
