@@ -82,7 +82,11 @@ function buildViews(data) {
         logSheetName: data.LOG_SHEET_NAME || DEFAULTS.LOG_SHEET_NAME
     };
 
-    // ✅ เช็คค่าที่ยังว่าง แล้วเพิ่ม warning
+    // ✅ เช็คค่าที่ยังว่าง แล้วเพิ่ม warning (แสดงเฉพาะเมื่อ loaded แล้ว)
+    if (loaded) {
+        return result;
+    }
+
     const requiredFields = [
         ['welcomeChannelId', 'WELCOME_CHANNEL_ID'],
         ['logChannelId', 'LOG_CHANNEL_ID'],
@@ -158,8 +162,68 @@ async function loadSheetConfig() {
     }
 }
 
-async function reloadSheetConfig() {
-    return loadSheetConfig();
+// ✅ ใช้ cached rawData แทนการ GET Sheet ใหม่ทุกครั้ง
+async function writeConfigKeys(updates) {
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // ✅ ใช้ rawData ที่ cache ไว้ + อ่าน Sheet เฉพาะเมื่อยังไม่ loaded
+    const map = new Map();
+    
+    if (loaded && Object.keys(rawData).length > 0) {
+        // ใช้ cached data
+        for (const [key, value] of Object.entries(rawData)) {
+            map.set(key, value);
+        }
+    } else {
+        // fallback: อ่านจาก Sheet
+        const res = await sheets.spreadsheets.values.get({
+            spreadsheetId: CONFIG_SHEET_ID,
+            range: `${CONFIG_SHEET_NAME}!A:B`
+        });
+        const rows = res.data.values || [];
+        for (const row of rows) {
+            if (row[0]) {
+                map.set(row[0], row[1] !== undefined ? row[1] : '');
+            }
+        }
+    }
+
+    // Apply updates
+    for (const [key, value] of updates) {
+        map.set(key, value);
+    }
+
+    const newRows = Array.from(map.entries()).map(([key, value]) => [key, value]);
+
+    let lastError;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: CONFIG_SHEET_ID,
+                range: `${CONFIG_SHEET_NAME}!A1`,
+                valueInputOption: 'USER_ENTERED',
+                resource: { values: newRows }
+            });
+            break;
+        } catch (err) {
+            lastError = err;
+            console.error(`❌ [CONFIG] writeConfigKeys attempt ${attempt} ล้มเหลว:`, err.message);
+            if (attempt < 2) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    }
+
+    if (lastError) {
+        throw lastError;
+    }
+
+    // ✅ อัปเดต cache แทนการ reload ทั้งหมด
+    for (const [key, value] of updates) {
+        rawData[key] = value;
+    }
+    views = buildViews(rawData);
 }
 
 function isLoaded() {
@@ -213,56 +277,6 @@ function getLogSheetName() {
     return views.logSheetName;
 }
 
-async function writeConfigKeys(updates) {
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-
-    const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: CONFIG_SHEET_ID,
-        range: `${CONFIG_SHEET_NAME}!A:B`
-    });
-
-    const rows = res.data.values || [];
-    const map = new Map();
-
-    for (const row of rows) {
-        if (row[0]) {
-            map.set(row[0], row[1] !== undefined ? row[1] : '');
-        }
-    }
-
-    for (const [key, value] of updates) {
-        map.set(key, value);
-    }
-
-    const newRows = Array.from(map.entries()).map(([key, value]) => [key, value]);
-
-    let lastError;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: CONFIG_SHEET_ID,
-                range: `${CONFIG_SHEET_NAME}!A1`,
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: newRows }
-            });
-            break;
-        } catch (err) {
-            lastError = err;
-            console.error(`❌ [CONFIG] writeConfigKeys attempt ${attempt} ล้มเหลว:`, err.message);
-            if (attempt < 2) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-}
-}
-    }
-
-    if (lastError) {
-        throw lastError;
-    }
-
-    await reloadSheetConfig();
-}
-
 async function writeCountConfigRows(configValues) {
     return writeConfigKeys(configValues);
 }
@@ -271,7 +285,7 @@ module.exports = {
     CONFIG_SHEET_ID,
     CONFIG_SHEET_NAME,
     loadSheetConfig,
-    reloadSheetConfig,
+    reloadSheetConfig: loadSheetConfig,
     isLoaded,
     get,
     getCountConfig,
@@ -287,4 +301,3 @@ module.exports = {
     writeConfigKeys,
     writeCountConfigRows
 };
-
