@@ -6,12 +6,98 @@ const { google } = require('googleapis');
 const path = require('path');
 const sheetConfig = require('../../utils/sheetConfig');
 const keys = require(path.join(__dirname, '../../credentials.json'));
+const { MessageFlags } = require('discord.js');
+const EPHEMERAL = MessageFlags.Ephemeral;
 
 let recountQueue = Promise.resolve();
+let currentAbortController = null;
 
 function addRecountQueue(task) {
     recountQueue = recountQueue.then(task).catch(console.error);
     return recountQueue;
+}
+
+// ✅ อัปเดตสถานะ (แก้ไขข้อความเดิม)
+async function updateStatus(interaction, content) {
+    try {
+        await interaction.editReply(content);
+        return true;
+    } catch (err) {
+        console.error('[CountCase] updateStatus failed:', err.message);
+        return false;
+    }
+}
+
+function isAborted() {
+    return currentAbortController?.signal?.aborted ?? false;
+}
+
+// ✅ Phase 1: Preview Scan
+async function previewScan(client, interaction, channelMappings) {
+    let totalMessages = 0;
+    const uniqueUsers = new Set();
+    const channelStats = [];
+
+    for (const chObj of channelMappings) {
+        if (!chObj.id) continue;
+
+        const channel = await client.channels.fetch(chObj.id).catch(() => null);
+        if (!channel) {
+            channelStats.push({ name: chObj.name, id: chObj.id, count: 0, skipped: true });
+            continue;
+        }
+
+        let msgCount = 0;
+        let lastId = null;
+        let hasMore = true;
+
+        while (hasMore) {
+            const messages = await channel.messages.fetch({ limit: 100, before: lastId || undefined });
+            if (messages.size === 0) break;
+
+            msgCount += messages.size;
+            totalMessages += messages.size;
+
+            for (const msg of messages.values()) {
+                const mentions = msg.content.match(/<@!?(\d+)>/g);
+                if (mentions) {
+                    for (const m of mentions) {
+                        const uId = m.match(/\d+/)[0];
+                        uniqueUsers.add(uId);
+                    }
+                }
+            }
+
+            lastId = messages.last()?.id;
+            if (messages.size < 100) hasMore = false;
+        }
+
+        channelStats.push({ name: chObj.name, id: chObj.id, count: msgCount, skipped: false });
+    }
+
+    // ✅ สรุป Preview
+    let previewMsg =
+        '📊 **สรุปข้อมูลก่อนเริ่มนับ**\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+        `📝 ข้อความทั้งหมด: **${totalMessages.toLocaleString()}** ข้อความ\n` +
+        `👥 พบแท็ก (unique): **${uniqueUsers.size}** คน\n` +
+        `📢 จำนวนห้อง: **${channelStats.filter(c => !c.skipped).length}** ห้อง\n\n` +
+        '**รายละเอียดแต่ละห้อง:**\n';
+
+    for (const ch of channelStats) {
+        if (ch.skipped) {
+            previewMsg += `  ⚠️ ${ch.name}: ไม่พบห้อง (ข้าม)\n`;
+        } else {
+            previewMsg += `  ✅ ${ch.name}: ${ch.count.toLocaleString()} ข้อความ\n`;
+        }
+    }
+
+    previewMsg += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    previewMsg += '▶️ **เริ่มนับยอดจริง...**';
+
+    await updateStatus(interaction, previewMsg);
+
+    return { totalMessages, uniqueUserCount: uniqueUsers.size };
 }
 
 async function runManualRecount(client, interaction) {
@@ -32,8 +118,16 @@ async function runManualRecount(client, interaction) {
             const sheetName = liveConfig.SHEET_NAME;
 
             if (!spreadsheetId || !sheetName) {
-                return await interaction.editReply('❌ ยังไม่ได้ตั้งค่า SPREADSHEET_ID หรือ SHEET_NAME');
+                await interaction.reply({ content: '❌ ยังไม่ได้ตั้งค่า SPREADSHEET_ID หรือ SHEET_NAME', flags: EPHEMERAL });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+                return;
             }
+
+            // ✅ สร้างข้อความใหม่แยกจากแผงควบคุม
+            await interaction.reply({
+                content: '🔍 **กำลังสแกนข้อมูล...**\nกำลังนับจำนวนข้อความและแท็กทั้งหมด กรุณารอสักครู่...',
+                flags: EPHEMERAL
+            });
 
             await sheets.spreadsheets.values.clear({
                 spreadsheetId: spreadsheetId,
@@ -65,6 +159,14 @@ async function runManualRecount(client, interaction) {
                 { id: channelIds.CHANNEL_4, colIdx: 5, name: 'ID_4' },
                 { id: channelIds.CHANNEL_5, colIdx: 6, name: 'ID_5' }
             ];
+
+            // ✅ Phase 1: Preview Scan
+            const { totalMessages: previewTotal } = await previewScan(
+                client, interaction, channelMappings
+            );
+
+            // ✅ Phase 2: เริ่มประมวลผลจริง
+            let lastStatusUpdate = 0;
 
             for (const chObj of channelMappings) {
                 if (!chObj.id) continue;
@@ -128,11 +230,23 @@ async function runManualRecount(client, interaction) {
                     }
 
                     totalMsgCount += messages.size;
+                    lastStatusUpdate += messages.size;
 
-                    if (totalMsgCount % 1000 === 0) {
-                        await interaction.editReply(`⏳ **กำลังนับยอด...** (อ่านไปแล้ว ${totalMsgCount.toLocaleString()} ข้อความ)`)
-                            .catch(() => null);
+                    if (lastStatusUpdate >= 500) {
+                        const cachedCount = userCache.size;
+                        const progress = previewTotal > 0
+                            ? Math.min(100, Math.round((totalMsgCount / previewTotal) * 100))
+                            : 0;
+
+                        await updateStatus(interaction,
+                            `⏳ **กำลังนับยอด...**\n` +
+                            `📝 อ่านแล้ว: **${totalMsgCount.toLocaleString()}** / ${previewTotal.toLocaleString()} ข้อความ (${progress}%)\n` +
+                            `👥 พบแท็ก: **${cachedCount}** คน\n` +
+                            `📢 ห้อง: ${chObj.name}`
+                        );
+
                         console.log(`[CH: ${chObj.name}] ประมวลผลไปแล้ว: ${totalMsgCount.toLocaleString()} ข้อความ`);
+                        lastStatusUpdate = 0;
                     }
 
                     lastId = messages.last()?.id;
@@ -147,23 +261,30 @@ async function runManualRecount(client, interaction) {
                 resource: { values: rows }
             });
 
-            await interaction.editReply(`✅ **นับยอดเสร็จสิ้น!** ทั้งหมด ${totalMsgCount.toLocaleString()} ข้อความ`);
+            const finalUserCount = userCache.size;
+            await updateStatus(interaction,
+                `✅ **นับยอดเสร็จสิ้น!**\n` +
+                '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+                `📝 ข้อความทั้งหมด: **${totalMsgCount.toLocaleString()}** ข้อความ\n` +
+                `👥 พบแท็ก: **${finalUserCount}** คน\n` +
+                `💾 บันทึกลง Google Sheet แล้ว`
+            );
 
-            setTimeout(async () => {
-                try { await interaction.deleteReply(); } catch (e) { }
-            }, 5000);
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
 
             console.log(`✅ สำเร็จ: ประมวลผล 5 ห้องรวมทั้งสิ้น ${totalMsgCount} ข้อความ`);
         } catch (error) {
             console.error('❌ Error ใน Manual Recount:', error);
-            await interaction.editReply("❌ **เกิดข้อผิดพลาด** บอททำงานหนักเกินไป โปรดลองใหม่อีกครั้ง");
+            await updateStatus(interaction, "❌ **เกิดข้อผิดพลาด** บอททำงานหนักเกินไป โปรดลองใหม่อีกครั้ง");
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         }
     });
 }
 
-async function init() {
-    // logic นับย้อนหลังถูกเรียกจาก configPanel
+// ✅ ส่งออก function หลักให้ featureHandler เรียก
+function load() {
+    // CountCase ไม่ต้องลง event listener ในตัวเอง
 }
 
-init.runManualRecount = runManualRecount;
-module.exports = init;
+module.exports = load;
+module.exports.runManualRecount = runManualRecount;

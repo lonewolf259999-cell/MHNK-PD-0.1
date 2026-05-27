@@ -101,7 +101,7 @@ module.exports = async (client) => {
 
             // --- ปุ่ม: เริ่มนับข้อความเก่า ---
             if (interaction.customId === 'btn_trigger_manual_count') {
-                if (!await safeDefer(interaction, { flags: EPHEMERAL })) return;
+                // ✅ ไม่ต้อง deferUpdate — ให้ CountCase reply เอง
                 await handleManualCount(client, interaction);
                 return;
             }
