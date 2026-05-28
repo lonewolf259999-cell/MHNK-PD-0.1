@@ -1,7 +1,7 @@
 // =================================================================
 // 🔄 features/reload/reload.js - คำสั่ง Reload Config แบบ Hot Reload
 // =================================================================
-const { Events } = require('discord.js');
+const { Events, MessageFlags } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
 const logger = require('../../utils/logger');
 const rateLimiter = require('../../utils/rateLimiter');
@@ -55,7 +55,7 @@ module.exports = async (client) => {
         if (!isAdmin) {
             return message.reply({
                 content: '❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Admin)',
-                flags: ['Ephemeral']
+                flags: [MessageFlags.Ephemeral]
             }).catch(() => { });
         }
 

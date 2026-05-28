@@ -4,7 +4,7 @@
 
 const sheetConfig = require('../../utils/sheetConfig');
 const { safeGetValues, safeUpdateValues, safeClearValues } = require('../../utils/apiSafe');
-const { safeFetchMessages, safeFetchMessage } = require('../../utils/discordSafe');
+const { safeFetchMessages } = require('../../utils/discordSafe');
 const { MessageFlags } = require('discord.js');
 const EPHEMERAL = MessageFlags.Ephemeral;
 

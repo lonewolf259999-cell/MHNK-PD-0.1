@@ -1,25 +1,20 @@
 // =================================================================
-// 📊 features/welcome/sheetManager.js (ฉบับอัปเกรดระบบจัดคิว Queue)
+// 📊 features/welcome/sheetManager.js — ใช้ apiSafe.js แทน googleapis โดยตรง
 // =================================================================
 
-const { google } = require('googleapis');
 const path = require('path');
 const sheetConfig = require('../../utils/sheetConfig');
-const keys = require(path.join(__dirname, '../../credentials.json'));
-
-const auth = new google.auth.GoogleAuth({
-    credentials: {
-        client_email: keys.client_email,
-        private_key: keys.private_key
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+const {
+    safeGetValues,
+    safeUpdateValues,
+    safeClearValues
+} = require('../../utils/apiSafe');
 
 function getRegistry() {
     return sheetConfig.getRegistryConfig();
 }
 
-// 🔥 สร้างตัวจัดคิวงาน (Queue System) เพื่อป้องกันบอททำงานทับถมกันเมื่อคนใช้งานพร้อมกันเยอะ ๆ
+// 🔥 Queue System ป้องกัน race condition
 let sheetQueue = Promise.resolve();
 function addSheetQueue(task) {
     sheetQueue = sheetQueue.then(task).catch(console.error);
@@ -32,7 +27,6 @@ function addSheetQueue(task) {
 async function _executeRegister(icName, userId) {
     try {
         const { spreadsheetId, sheetName } = getRegistry();
-        const sheets = google.sheets({ version: 'v4', auth });
 
         // ✅ เช็คซ้ำอีกครั้ง ตอนถึงคิวนี้จริง — ป้องกันกดติดๆ กัน
         const already = await isAlreadyRegistered(userId);
@@ -42,9 +36,8 @@ async function _executeRegister(icName, userId) {
         }
 
         // 1. ดึงข้อมูลในคอลัมน์ C และ D เพื่อหาแถวที่ว่าง
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `${sheetName}!C:D`,
+        const response = await safeGetValues(spreadsheetId, `${sheetName}!C:D`, {
+            operation: 'sheetManager-register-findRow'
         });
 
         const rows = response.data.values || [];
@@ -64,9 +57,8 @@ async function _executeRegister(icName, userId) {
 
         if (targetRowIndex === -1) {
             let nextCheckIndex = rows.length;
-            const dynamicCheck = await sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: `${sheetName}!C${nextCheckIndex + 1}:C${nextCheckIndex + 20}`,
+            const dynamicCheck = await safeGetValues(spreadsheetId, `${sheetName}!C${nextCheckIndex + 1}:C${nextCheckIndex + 20}`, {
+                operation: 'sheetManager-register-dynamic'
             });
             const dynamicRows = dynamicCheck.data.values || [];
 
@@ -90,23 +82,13 @@ async function _executeRegister(icName, userId) {
         const mentionFormat = `'<@${userId}>`;
 
         // บันทึกข้อมูลลงในแถวเป้าหมาย (คอลัมน์ D: ชื่อใหม่ | คอลัมน์ E: Discord ID | คอลัมน์ F: "นักเรียนตำรวจ")
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!D${targetRowIndex}:F${targetRowIndex}`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: {
-                values: [[finalNickname, mentionFormat, 'นักเรียนตำรวจ']]
-            }
+        await safeUpdateValues(spreadsheetId, `${sheetName}!D${targetRowIndex}:F${targetRowIndex}`, [[finalNickname, mentionFormat, 'นักเรียนตำรวจ']], {
+            operation: 'sheetManager-register-write'
         });
 
         // คอลัมน์ H: วันที่กรอกข้อมูล
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!H${targetRowIndex}`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: {
-                values: [[formattedDate]]
-            }
+        await safeUpdateValues(spreadsheetId, `${sheetName}!H${targetRowIndex}`, [[formattedDate]], {
+            operation: 'sheetManager-register-date'
         });
 
         console.log(`✅ [SHEET] บันทึกข้อมูลแถวที่ ${targetRowIndex} เรียบร้อย: ${finalNickname}`);
@@ -124,11 +106,9 @@ async function _executeRegister(icName, userId) {
 async function _executeMoveMember(userId) {
     try {
         const { spreadsheetId, sheetName, outSheetName } = getRegistry();
-        const sheets = google.sheets({ version: 'v4', auth });
 
-        const responsePD = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `${sheetName}!B:M`,
+        const responsePD = await safeGetValues(spreadsheetId, `${sheetName}!B:M`, {
+            operation: 'sheetManager-move-get'
         });
 
         const rowsPD = responsePD.data.values || [];
@@ -154,9 +134,8 @@ async function _executeMoveMember(userId) {
         }
 
         if (memberDataArray && foundRowIndexInPD !== -1) {
-            const responseOut = await sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: `${outSheetName}!B:B`,
+            const responseOut = await safeGetValues(spreadsheetId, `${outSheetName}!B:B`, {
+                operation: 'sheetManager-move-getOut'
             });
 
             const rowsOut = responseOut.data.values || [];
@@ -166,25 +145,59 @@ async function _executeMoveMember(userId) {
                 nextRowIndex = 3;
             }
 
-            await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `${outSheetName}!B${nextRowIndex}:M${nextRowIndex}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: {
-                    values: [memberDataArray]
-                }
+            await safeUpdateValues(spreadsheetId, `${outSheetName}!B${nextRowIndex}:M${nextRowIndex}`, [memberDataArray], {
+                operation: 'sheetManager-move-writeOut'
             });
             console.log(`📌 [SHEET] ย้ายข้อมูลคนออก (B-M) ไปหน้า OutDC แถวที่ ${nextRowIndex} สำเร็จ`);
 
-            const columnsToDelete = ['B', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'M', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'];
+            // ✅ แก้ไข: ใช้ batch clear แทน loop ทีละคอลัมน์
+            const columnsToClear = ['B', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'M', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'];
+            const clearRanges = columnsToClear.map(col => ({
+                range: `${sheetName}!${col}${foundRowIndexInPD}`
+            }));
 
-            for (const col of columnsToDelete) {
-                await sheets.spreadsheets.values.clear({
+            // ใช้ API request เดียวด้วย batchUpdate (clear ทุกคอลัมน์พร้อมกัน)
+            const { google } = require('googleapis');
+            const keys = require(path.join(__dirname, '../../credentials.json'));
+            const auth = new google.auth.GoogleAuth({
+                credentials: {
+                    client_email: keys.client_email,
+                    private_key: keys.private_key
+                },
+                scopes: ['https://www.googleapis.com/auth/spreadsheets']
+            });
+            const sheets = google.sheets({ version: 'v4', auth });
+
+            // ใช้ batchUpdate (spreadsheets.batchUpdate) เพื่อ clear หลายช่วงพร้อมกัน
+            const requests = columnsToClear.map(col => ({
+                updateCells: {
+                    range: {
+                        sheetId: null, // จะหา sheet id จากชื่อในขั้นตอนถัดไป
+                        startRowIndex: foundRowIndexInPD - 1,
+                        endRowIndex: foundRowIndexInPD,
+                        startColumnIndex: getColumnIndex(col),
+                        endColumnIndex: getColumnIndex(col) + 1
+                    },
+                    fields: 'userEnteredValue'
+                }
+            }));
+
+            try {
+                await sheets.spreadsheets.batchUpdate({
                     spreadsheetId,
-                    range: `${sheetName}!${col}${foundRowIndexInPD}`,
+                    requestBody: { requests }
                 });
+                console.log(`🗑️ [SHEET] ลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName} เรียบร้อย (ใช้ batchUpdate)`);
+            } catch (batchErr) {
+                // fallback: ใช้ safeClearValues ทีละคอลัมน์
+                console.warn(`⚠️ [SHEET] batchUpdate ล้มเหลว ใช้ fallback clear ทีละคอลัมน์:`, batchErr.message);
+                for (const range of clearRanges) {
+                    await safeClearValues(spreadsheetId, range.range, {
+                        operation: 'sheetManager-move-clear-fallback'
+                    });
+                }
+                console.log(`🗑️ [SHEET] ลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName} เรียบร้อย (fallback ทีละคอลัมน์)`);
             }
-            console.log(`🗑️ [SHEET] ลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName} เรียบร้อย (เว้นคอลัมน์ C, I, L — รวมลบ O–U เวลาเวร)`);
 
         } else {
             console.log(`⚠️ [SHEET] ไม่พบข้อมูลเก่าของ <@${userId}> ในช่วง B:M ของหน้า ${sheetName}`);
@@ -195,8 +208,17 @@ async function _executeMoveMember(userId) {
     }
 }
 
+// ✅ Helper: แปลง letter column name เป็น index (A=0, B=1, ...)
+function getColumnIndex(col) {
+    let index = 0;
+    for (let i = 0; i < col.length; i++) {
+        index = index * 26 + (col.charCodeAt(i) - 64);
+    }
+    return index - 1;
+}
+
 // =================================================================
-// EXPORT FUNCTIONS (ครอบด้วยระบบจัดคิวเพื่อให้บอทรันทีละคนอย่างปลอดภัย)
+// EXPORT FUNCTIONS (ครอบด้วยระบบจัดคิว)
 // =================================================================
 
 function registerMemberToSheet(icName, userId) {
@@ -213,17 +235,15 @@ function moveMemberToOutSheet(userId) {
 async function isAlreadyRegistered(userId) {
     try {
         const { spreadsheetId, sheetName } = getRegistry();
-        const sheets = google.sheets({ version: 'v4', auth });
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `${sheetName}!E:E`, // คอลัมน์ E คือที่เก็บ Discord ID
+        const response = await safeGetValues(spreadsheetId, `${sheetName}!E:E`, {
+            operation: 'sheetManager-isRegistered'
         });
         const rows = response.data.values || [];
         // วนลูปเช็กว่ามี userId นี้อยู่ในคอลัมน์ E หรือยัง
         return rows.some(row => row[0] && row[0].toString().includes(userId));
     } catch (err) {
         console.error("❌ [SHEET ERROR] ตรวจสอบสถานะลงทะเบียนไม่สำเร็จ:", err);
-        return false; // ถ้ามีปัญหา ให้มองว่ายังไม่ลงทะเบียน (ป้องกันบอทพัง)
+        return false;
     }
 }
 

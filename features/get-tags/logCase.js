@@ -179,9 +179,9 @@ async function loadCache() {
         console.log(`✅ [logCase] โหลดแคชแล้ว: ${translatedIds.size} ID`);
     } catch (err) {
         console.error('❌ [logCase] โหลด cache ล้มเหลว:', err.message);
-        // อย่า set cacheLoaded = true เพื่อให้ลองใหม่ได้
-        // แต่ยังคงใช้ IDMissedLog.json ที่มีอยู่
-        cacheLoaded = true; // set จริงเพื่อไม่ให้ลองใหม่ไม่มีประโยชน์
+        // ยังคงใช้ IDMissedLog.json ที่มีอยู่ โดยไม่ set cacheLoaded = true
+        // เพื่อให้ลองโหลดใหม่ในครั้งถัดไป
+        cacheLoaded = false;
     }
 }
 
