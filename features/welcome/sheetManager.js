@@ -217,17 +217,30 @@ function moveMemberToOutSheet(userId) {
 }
 
 /**
- * ฟังก์ชันเช็กว่า Discord ID นี้เคยลงทะเบียนไปแล้วหรือไม่ (เช็กจากคอลัมน์ E)
+ * ฟังก์ชันเช็กว่า Discord ID นี้เคยลงทะเบียนไปแล้วหรือไม่ (เช็กจาก NamePD + OutDC คอลัมน์ E)
  */
 async function isAlreadyRegistered(userId) {
     try {
-        const { spreadsheetId, sheetName } = getRegistry();
-        const response = await safeGetValues(spreadsheetId, `${sheetName}!E:E`, {
-            operation: 'sheetManager-isRegistered'
+        const { spreadsheetId, sheetName, outSheetName } = getRegistry();
+
+        // ✅ เช็ค NamePD คอลัมน์ E
+        const responsePD = await safeGetValues(spreadsheetId, `${sheetName}!E:E`, {
+            operation: 'sheetManager-isRegistered-PD'
         });
-        const rows = response.data.values || [];
-        // วนลูปเช็กว่ามี userId นี้อยู่ในคอลัมน์ E หรือยัง
-        return rows.some(row => row[0] && row[0].toString().includes(userId));
+        const rowsPD = responsePD.data.values || [];
+        const inPD = rowsPD.some(row => row[0] && row[0].toString().includes(userId));
+        if (inPD) return true;
+
+        // ✅ เช็ค OutDC คอลัมน์ E (ถ้าข้อมูลเคยย้ายออก ห้ามสมัครซ้ำ)
+        if (outSheetName) {
+            const responseOut = await safeGetValues(spreadsheetId, `${outSheetName}!E:E`, {
+                operation: 'sheetManager-isRegistered-Out'
+            });
+            const rowsOut = responseOut.data.values || [];
+            return rowsOut.some(row => row[0] && row[0].toString().includes(userId));
+        }
+
+        return false;
     } catch (err) {
         console.error("❌ [SHEET ERROR] ตรวจสอบสถานะลงทะเบียนไม่สำเร็จ:", err);
         return false;

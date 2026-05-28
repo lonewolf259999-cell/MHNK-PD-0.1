@@ -227,9 +227,9 @@ async function processQueue() {
         }
     } finally {
         isProcessing = false;
-            processQueue();
-        }
-        }
+        processQueue();
+    }
+}
 
 module.exports = (client) => {
     const { spreadsheetId, sheetName } = getRegistryTarget();
