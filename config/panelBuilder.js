@@ -36,7 +36,8 @@ function createPanelEmbed() {
             `• Log เวร: ${ch(sheetConfig.getLogtimeChannelId())}\n\n` +
             '**BYPD**\n' +
             `• อ่าน: ${ch(sheetConfig.getBypdScanChannelId())}\n` +
-            `• ส่ง: ${ch(sheetConfig.getBypdSendChannelId())}\n\n` +
+            `• ส่ง: ${ch(sheetConfig.getBypdSendChannelId())}\n` +
+            `• ห้อง Log: ${ch(sheetConfig.getBypdLogChannelId())}\n\n` +
             '**ชีตลงทะเบียน PD**\n' +
             `• ID: \`${reg.spreadsheetId}\`\n` +
             `• แท็บ: \`${reg.sheetName}\` | ออก: \`${reg.outSheetName}\``

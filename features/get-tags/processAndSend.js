@@ -4,7 +4,7 @@
 
 const { EmbedBuilder } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
-const { safeSendMessage } = require('../../utils/discordSafe');
+const { safeSendMessage, safeReact } = require('../../utils/discordSafe');
 
 // 🔒 Lock ป้องกันประมวลผลข้อความเดิมพร้อมกัน (race condition)
 const processingLocks = new Set();
@@ -101,7 +101,6 @@ function parseDetails(finalContent) {
 
 // ✅ ฟังก์ชันหลัก: ประมวลผลและส่ง Embed
 async function processAndSend(message, options = {}) {
-    const { isResendMode = false } = options;
     const messageId = message.id;
 
     // 🔒 ป้องกันประมวลผลซ้ำพร้อมกัน
@@ -154,7 +153,6 @@ async function processAndSend(message, options = {}) {
 
         // ✅ React (ไม่ block flow ถ้า error) - ใช้ safeReact
         try {
-            const { safeReact } = require('../../utils/discordSafe');
             await retryAsync(() => safeReact(message, '✅'));
         } catch (reactErr) {
             console.error(`⚠️ [processAndSend] React ล้มเหลว ID ${messageId}:`, reactErr.message);

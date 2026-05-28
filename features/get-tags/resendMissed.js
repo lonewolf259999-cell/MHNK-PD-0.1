@@ -42,7 +42,16 @@ async function runResendMissed(client, interaction, abortSignal = null) {
 
     console.log(`📊 ข้อความทั้งหมดในห้อง Log: ${allMessages.length}`);
 
-    // ✅ 2. กรองเฉพาะข้อความ BYPD ที่ยังไม่มี ✅ reaction
+    // ✅ 2. fetch reactions ทุกข้อความให้ครบก่อนเช็ค (ป้องกัน partial cache)
+    for (const msg of allMessages) {
+        try {
+            await msg.fetch();
+        } catch (fetchErr) {
+            // ข้ามข้อความที่ fetch ไม่ได้ (ลบแล้ว/ไม่มีสิทธิ์)
+        }
+    }
+
+    // ✅ 3. กรองเฉพาะข้อความ BYPD ที่ยังไม่มี ✅ reaction
     const missedMessages = allMessages.filter(msg => {
         const content = extractContent(msg);
         if (!content.toUpperCase().includes('BYPD')) return false;
@@ -87,7 +96,7 @@ async function runResendMissed(client, interaction, abortSignal = null) {
 
         try {
             console.log(`🔄 กำลังส่งย้อนหลัง ID: ${msg.id}`);
-            const sent = await processAndSend(msg, { isResendMode: true });
+            const sent = await processAndSend(msg);
 
             if (sent) {
                 sentCount++;
