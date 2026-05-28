@@ -176,6 +176,24 @@ async function safeBatchUpdateValues(spreadsheetId, data, options = {}) {
 }
 
 /**
+ * Execute batchUpdate (cell-level operations like updateCells) with safe retry
+ * @param {string} spreadsheetId - The spreadsheet ID
+ * @param {Object[]} requests - Array of batch update requests
+ * @param {Object} [options] - Optional overrides
+ * @returns {Promise<any>} API response
+ */
+async function safeBatchUpdate(spreadsheetId, requests, options = {}) {
+    const sheets = createSheetsClient();
+    return safeSheetsCall(
+        () => sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: { requests }
+        }),
+        { operation: `batchUpdate(${requests.length} requests)`, ...options }
+    );
+}
+
+/**
  * Clear values in Google Sheets with safe retry
  */
 async function safeClearValues(spreadsheetId, range, options = {}) {
@@ -210,6 +228,7 @@ module.exports = {
     safeGetValues,
     safeUpdateValues,
     safeBatchUpdateValues,
+    safeBatchUpdate,
     safeClearValues,
     safeAppendValues,
     createSheetsClient,

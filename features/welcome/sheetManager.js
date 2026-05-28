@@ -2,12 +2,12 @@
 // 📊 features/welcome/sheetManager.js — ใช้ apiSafe.js แทน googleapis โดยตรง
 // =================================================================
 
-const path = require('path');
 const sheetConfig = require('../../utils/sheetConfig');
 const {
     safeGetValues,
     safeUpdateValues,
-    safeClearValues
+    safeClearValues,
+    safeBatchUpdate
 } = require('../../utils/apiSafe');
 
 function getRegistry() {
@@ -156,19 +156,7 @@ async function _executeMoveMember(userId) {
                 range: `${sheetName}!${col}${foundRowIndexInPD}`
             }));
 
-            // ใช้ API request เดียวด้วย batchUpdate (clear ทุกคอลัมน์พร้อมกัน)
-            const { google } = require('googleapis');
-            const keys = require(path.join(__dirname, '../../credentials.json'));
-            const auth = new google.auth.GoogleAuth({
-                credentials: {
-                    client_email: keys.client_email,
-                    private_key: keys.private_key
-                },
-                scopes: ['https://www.googleapis.com/auth/spreadsheets']
-            });
-            const sheets = google.sheets({ version: 'v4', auth });
-
-            // ใช้ batchUpdate (spreadsheets.batchUpdate) เพื่อ clear หลายช่วงพร้อมกัน
+            // ใช้ API request เดียวด้วย safeBatchUpdate (clear ทุกคอลัมน์พร้อมกัน)
             const requests = columnsToClear.map(col => ({
                 updateCells: {
                     range: {
@@ -183,9 +171,8 @@ async function _executeMoveMember(userId) {
             }));
 
             try {
-                await sheets.spreadsheets.batchUpdate({
-                    spreadsheetId,
-                    requestBody: { requests }
+                await safeBatchUpdate(spreadsheetId, requests, {
+                    operation: 'sheetManager-move-batchUpdate'
                 });
                 console.log(`🗑️ [SHEET] ลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName} เรียบร้อย (ใช้ batchUpdate)`);
             } catch (batchErr) {
