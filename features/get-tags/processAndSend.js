@@ -4,8 +4,7 @@
 
 const { EmbedBuilder } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
-const logCase = require('./logCase');
-const { safeSendMessage, safeReact } = require('../../utils/discordSafe');
+const { safeSendMessage } = require('../../utils/discordSafe');
 
 // 🔒 Lock ป้องกันประมวลผลข้อความเดิมพร้อมกัน (race condition)
 const processingLocks = new Set();
@@ -111,12 +110,6 @@ async function processAndSend(message, options = {}) {
         return false;
     }
 
-    // เช็คว่าส่งแล้ว
-    if (logCase.isAlreadyTranslated(messageId)) {
-        console.log(`⏭️ [processAndSend] ID ${messageId} ส่งแล้ว — ข้าม`);
-        return false;
-    }
-
     processingLocks.add(messageId);
 
     try {
@@ -159,33 +152,17 @@ async function processAndSend(message, options = {}) {
 
         console.log(`✅ [BYPD System] ส่งข้อมูลเรียบร้อย ID: ${messageId}`);
 
-        // ✅ React + บันทึก (ไม่ block flow ถ้า error) - ใช้ safeReact
+        // ✅ React (ไม่ block flow ถ้า error) - ใช้ safeReact
         try {
+            const { safeReact } = require('../../utils/discordSafe');
             await retryAsync(() => safeReact(message, '✅'));
         } catch (reactErr) {
             console.error(`⚠️ [processAndSend] React ล้มเหลว ID ${messageId}:`, reactErr.message);
         }
 
-        // ✅ แยก flow ตามโหมด
-        if (isResendMode) {
-            // ✅ โหมด resend: เก็บลง IDMissedLog ก่อน (batch ขึ้น Sheet ทีหลัง)
-            logCase.addToMissedLog(messageId);
-            console.log(`✅ [processAndSend] เก็บ ID ${messageId} ลง IDMissedLog (resend mode)`);
-        } else {
-            // ✅ โหมดปกติ: เก็บลง Sheet โดยตรง
-            try {
-                await retryAsync(() => logCase.saveToSheet(messageId));
-            } catch (sheetErr) {
-                console.error(`⚠️ [processAndSend] บันทึก Sheet ล้มเหลว ID ${messageId}:`, sheetErr.message);
-                // เก็บไว้ในไฟล์ชั่วคราวเผื่อไว้ resend ทีหลัง
-        logCase.addToMissedLog(messageId);
-    }
-}
-
         return true;
     } catch (error) {
         console.error(`❌ [processAndSend] Error ID ${messageId}:`, error);
-        logCase.addToMissedLog(messageId);
         return false;
     } finally {
         processingLocks.delete(messageId);

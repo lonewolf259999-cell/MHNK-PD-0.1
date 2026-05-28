@@ -47,7 +47,8 @@ function buildWelcomeModal() {
 function buildBypdModal() {
     return createModalBase('modal_cfg_bypd', 'ตั้งค่า — BYPD', [
         ['input_bypd_scan', 'BYPD_SCAN_CHANNEL_ID',  sheetConfig.getBypdScanChannelId()],
-        ['input_bypd_send', 'BYPD_SEND_CHANNEL_ID',  sheetConfig.getBypdSendChannelId()]
+        ['input_bypd_send', 'BYPD_SEND_CHANNEL_ID',  sheetConfig.getBypdSendChannelId()],
+        ['input_bypd_log',  'BYPD_LOG_CHANNEL_ID',   sheetConfig.getBypdLogChannelId()]
     ]);
 }
 

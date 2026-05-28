@@ -17,8 +17,6 @@ const DEFAULTS = {
     BYPD_SCAN_CHANNEL_ID: '',
     BYPD_SEND_CHANNEL_ID: '',
     BYPD_LOG_CHANNEL_ID: '',
-    LOG_SHEET_ID: '',
-    LOG_SHEET_NAME: '',
     REGISTRY_SPREADSHEET_ID: '',
     REGISTRY_SHEET_NAME: '',
     REGISTRY_OUT_SHEET_NAME: ''
@@ -66,9 +64,7 @@ function buildViews(data) {
         logtimeChannelId: data.LOGTIME_CHANNEL_ID || DEFAULTS.LOGTIME_CHANNEL_ID,
         bypdScanChannelId: data.BYPD_SCAN_CHANNEL_ID || DEFAULTS.BYPD_SCAN_CHANNEL_ID,
         bypdSendChannelId: data.BYPD_SEND_CHANNEL_ID || DEFAULTS.BYPD_SEND_CHANNEL_ID,
-        bypdLogChannelId: data.BYPD_LOG_CHANNEL_ID || DEFAULTS.BYPD_LOG_CHANNEL_ID,
-        logSheetId: data.LOG_SHEET_ID || DEFAULTS.LOG_SHEET_ID,
-        logSheetName: data.LOG_SHEET_NAME || DEFAULTS.LOG_SHEET_NAME
+        bypdLogChannelId: data.BYPD_LOG_CHANNEL_ID || DEFAULTS.BYPD_LOG_CHANNEL_ID
     };
 
     return result;
@@ -84,8 +80,6 @@ function checkWarnings(result) {
         ['bypdScanChannelId', 'BYPD_SCAN_CHANNEL_ID'],
         ['bypdSendChannelId', 'BYPD_SEND_CHANNEL_ID'],
         ['bypdLogChannelId', 'BYPD_LOG_CHANNEL_ID'],
-        ['logSheetId', 'LOG_SHEET_ID'],
-        ['logSheetName', 'LOG_SHEET_NAME'],
         ['registry.spreadsheetId', 'REGISTRY_SPREADSHEET_ID'],
         ['registry.sheetName', 'REGISTRY_SHEET_NAME'],
         ['registry.outSheetName', 'REGISTRY_OUT_SHEET_NAME']
@@ -138,8 +132,6 @@ async function loadSheetConfig() {
 
         console.log('✅ [CONFIG] โหลด config จาก Google Sheet สำเร็จ');
         console.log(`📌 BYPD Log Channel: ${views.bypdLogChannelId || '(ยังไม่ตั้ง)'}`);
-        console.log(`📌 Log Sheet ID: ${views.logSheetId || '(ยังไม่ตั้ง)'}`);
-        console.log(`📌 Log Sheet Name: ${views.logSheetName || '(ยังไม่ตั้ง)'}`);
         console.log(`📌 ชีตนับเคส: ${views.count.SPREADSHEET_ID || '(ยังไม่ตั้ง)'}`);
         console.log(`📌 ชีตลงทะเบียน: ${views.registry.spreadsheetId}`);
         return views;
@@ -248,14 +240,6 @@ function getBypdLogChannelId() {
     return views.bypdLogChannelId;
 }
 
-function getLogSheetId() {
-    return views.logSheetId;
-}
-
-function getLogSheetName() {
-    return views.logSheetName;
-}
-
 async function writeCountConfigRows(configValues) {
     return writeConfigKeys(configValues);
 }
@@ -275,8 +259,6 @@ module.exports = {
     getBypdScanChannelId,
     getBypdSendChannelId,
     getBypdLogChannelId,
-    getLogSheetId,
-    getLogSheetName,
     writeConfigKeys,
     writeCountConfigRows
 };

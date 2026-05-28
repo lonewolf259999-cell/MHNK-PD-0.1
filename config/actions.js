@@ -7,7 +7,6 @@ const sheetConfig = require('../utils/sheetConfig');
 const { createPanelEmbed, buildPanelComponents } = require('./panelBuilder');
 const countCase = require('../features/CountCase/CountCase');
 const { runResendMissed } = require('../features/get-tags/resendMissed');
-const logCase = require('../features/get-tags/logCase');
 const { resendStates } = require('./resendState');
 
 // --- รีเฟรช config ---
@@ -49,7 +48,8 @@ async function handleWelcomeSave(interaction) {
 async function handleBypdSave(interaction) {
     await sheetConfig.writeConfigKeys([
         ['BYPD_SCAN_CHANNEL_ID', interaction.fields.getTextInputValue('input_bypd_scan').trim()],
-        ['BYPD_SEND_CHANNEL_ID', interaction.fields.getTextInputValue('input_bypd_send').trim()]
+        ['BYPD_SEND_CHANNEL_ID', interaction.fields.getTextInputValue('input_bypd_send').trim()],
+        ['BYPD_LOG_CHANNEL_ID',  interaction.fields.getTextInputValue('input_bypd_log').trim()]
     ]);
     return '✅ บันทึกตั้งค่า BYPD แล้ว';
 }
