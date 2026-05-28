@@ -174,6 +174,8 @@ node index.js
 |------|--------|----------|
 | `logger.js` | ระบบ log → logs/ | reload.js |
 | `sheetConfig.js` | อ่าน/เขียน config จาก Sheet | หลาย feature |
+| `apiSafe.js` | 🔥 **ใหม่** Google Sheets API Client ส่วนกลาง + Retry + Rate Limit Handling | logCase, sheetUpdater, logtime, CountCase, sheetConfig |
+| `discordSafe.js` | 🔥 **ใหม่** Discord API Safety + Rate Limit Protection | processAndSend, logCase, resendMissed |
 | `interactionSafe.js` | ดัก error interaction | clear, configPanel, welcome, EditTAG |
 | `envValidator.js` | ตรวจสอบ .env | เผื่ออนาคต |
 | `rateLimiter.js` | จำกัดการใช้งานซ้ำ | reload.js |
@@ -189,7 +191,59 @@ node index.js
 - `tests/` **ถูกลบแล้ว** — ไม่จำเป็น
 - `config/resendState.js` **ใหม่** — shared state สำหรับ resend BYPD (ห้ามสร้าง Map ใหม่)
 - `features/get-tags/resendMissed.js` **ใหม่** — ส่งย้อนหลัง + batch ลง Sheet
+- `utils/apiSafe.js` **🔥 ใหม่** — Centralized Google Sheets API Client with Retry + Rate Limit Handling
+- `utils/discordSafe.js` **🔥 ใหม่** — Discord API Safety + Rate Limit Protection
+- ทุกไฟล์ที่เรียก Google Sheets API ถูกเปลี่ยนไปใช้ `apiSafe` ทั้งหมดเพื่อป้องกัน 429/503
 
+## 🔥 ระบบป้องกัน API Block
+
+### ปัญหาที่เจอ
+1. **Google Sheets API**: ถูกจำกัด 100 requests/100sec ถ้าส่งพร้อมกันหลาย Feature → โดน 429
+2. **Discord API**: 429 Rate limit ถ้าส่งข้อความ/react พร้อมกัน
+3. **IDMissedLog.json**: ถ้าไฟล์เสียเวลา Bot crash → ข้อมูล ID หาย
+4. **Auth Token Expire**: JWT token หมดอายุระหว่าง Bot รันนาน
+
+### วิธีแก้ไข (🔥 ใหม่ทั้งหมด)
+
+#### 1. `utils/apiSafe.js` — Google Sheets API Protection
+- **Rate Limit Aware**: จำกัดไว้ 90/100sec ก่อนเรียก API
+- **Retry 5 ครั้ง**: Exponential backoff (1s → 2s → 4s → 8s → 16s)
+- **429/503 Handling**: รู้จัก error Google Sheets ทุกประเภท
+- **Auth Refresh**: ถ้า JWT หมดอายุ → สร้าง auth ใหม่แล้ว retry
+- **Logging**: แสดง warning ก่อนถึง limit + บอกเวลารอ
+
+#### 2. `utils/discordSafe.js` — Discord API Protection
+- **Per-route Rate Limit**: จำกัดแยกตาม endpoints (channels/:id/messages, reactions)
+- **Global 100ms Cooldown**: ระหว่างคำสั่ง Discord API
+- **429 Detection**: จับ + set route cooldown อัตโนมัติ
+- **Retry 3 ครั้ง**: ถ้าโดน rate limit → รอตาม retry_after → retry
+- **Safe Functions**: safeFetchMessage, safeFetchMessages, safeSendMessage, safeEditMessage, safeReact
+
+#### 3. `IDMissedLog.json` — Data Loss Protection
+- **Backup on write**: `.bak` ไฟล์สำรองทุกครั้งก่อนเขียน
+- **In-memory fallback**: `unsyncedIds` เก็บ ID ใน memory ถ้าเขียนไฟล์ไม่ได้
+- **Recovery**: `recoverFromBackup()` กู้คืนจาก backup ถ้า main file เสีย
+- **Merge on read**: รวมข้อมูลจากไฟล์ + in-memory
+
+#### 4. Global API Monitoring
+- Endpoint `/health/apis` — ดูสถานะ API แบบ real-time
+- ติดตาม number of requests ใน window, route rate limits, memory usage
+
+### ไฟล์ที่ใช้ `apiSafe` (แทน `googleapis` โดยตรง)
+| ไฟล์ | API ที่เปลี่ยน |
+|------|---------------|
+| `utils/sheetConfig.js` | `safeGetValues`, `safeUpdateValues` |
+| `features/get-tags/logCase.js` | `safeGetValues`, `safeUpdateValues` |
+| `features/CountAuto/logic/sheetUpdater.js` | `safeGetValues`, `safeUpdateValues` |
+| `features/logtime/logtime.js` | `safeGetValues`, `safeUpdateValues`, `safeBatchUpdateValues` |
+| `features/CountCase/CountCase.js` | `safeGetValues`, `safeUpdateValues`, `safeClearValues` |
+
+### ไฟล์ที่ใช้ `discordSafe` (แทน discord.js โดยตรง)
+| ไฟล์ | ฟังก์ชันที่เปลี่ยน |
+|------|-------------------|
+| `features/get-tags/processAndSend.js` | `safeSendMessage`, `safeReact` |
+| `features/get-tags/logCase.js` | `safeReact` |
+| `features/get-tags/resendMissed.js` | `safeFetchMessages` |
 ## 🔄 สถานะโปรเจกต์
 
 ### เสร็จสมบูรณ์
@@ -203,6 +257,11 @@ node index.js
 - ✅ ระบบบันทึกเวลาเข้าเวร (logtime)
 - ✅ ระบบ reload config (!reload)
 - ✅ Keep-alive + Watchdog + Safe restart
+- ✅ **🔥 ระบบป้องกัน API Block ทุกระดับ**
+  - Google Sheets API: Retry 5 ครั้ง + Rate Limit 90/100sec
+  - Discord API: Retry 3 ครั้ง + Rate Limit per route + Anti-Race
+  - IDMissedLog.json: Backup/Restore + In-memory fallback
+  - Health check: `/health/apis` ดูสถานะ API ได้
 
 ### รอดำเนินการ
 - ⏳ ไม่มี (ทุกอย่างเสร็จแล้ว!)

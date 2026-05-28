@@ -2,9 +2,7 @@
 // 📊 features/CountAuto/logic/sheetUpdater.js — อัปเดต Google Sheet
 // =================================================================
 
-const { google } = require('googleapis');
-const path = require('path');
-const keys = require(path.join(__dirname, '../../../credentials.json'));
+const { safeGetValues, safeUpdateValues } = require('../../../utils/apiSafe');
 
 function findUserRow(rows, person) {
     return rows.findIndex(
@@ -17,18 +15,8 @@ function findUserRow(rows, person) {
 
 async function processSheetBatch(list, msg, configData, isDel = false) {
     try {
-        const auth = new google.auth.GoogleAuth({
-            credentials: {
-                client_email: keys.client_email,
-                private_key: keys.private_key
-            },
-            scopes: ['https://www.googleapis.com/auth/spreadsheets']
-        });
-
-        const sheets = google.sheets({ version: 'v4', auth });
-        const res = await sheets.spreadsheets.values.get({
-            spreadsheetId: configData.SPREADSHEET_ID,
-            range: `${configData.SHEET_NAME}!A:G`
+        const res = await safeGetValues(configData.SPREADSHEET_ID, `${configData.SHEET_NAME}!A:G`, {
+            operation: 'processSheetBatch'
         });
 
         let rows = res.data.values || [];
@@ -63,11 +51,8 @@ async function processSheetBatch(list, msg, configData, isDel = false) {
             }
         }
 
-        await sheets.spreadsheets.values.update({
-            spreadsheetId: configData.SPREADSHEET_ID,
-            range: `${configData.SHEET_NAME}!A1`,
-            valueInputOption: 'USER_ENTERED',
-            resource: { values: rows }
+        await safeUpdateValues(configData.SPREADSHEET_ID, `${configData.SHEET_NAME}!A1`, rows, {
+            operation: 'processSheetBatch-update'
         });
 
     } catch (e) {

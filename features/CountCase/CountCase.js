@@ -2,10 +2,9 @@
 // 🧹 features/CountCase/CountCase.js — logic นับข้อความเก่า (เรียกจาก configPanel)
 // =================================================================
 
-const { google } = require('googleapis');
-const path = require('path');
 const sheetConfig = require('../../utils/sheetConfig');
-const keys = require(path.join(__dirname, '../../credentials.json'));
+const { safeGetValues, safeUpdateValues, safeClearValues } = require('../../utils/apiSafe');
+const { safeFetchMessages, safeFetchMessage } = require('../../utils/discordSafe');
 const { MessageFlags } = require('discord.js');
 const EPHEMERAL = MessageFlags.Ephemeral;
 
@@ -52,7 +51,7 @@ async function previewScan(client, interaction, channelMappings) {
         let hasMore = true;
 
         while (hasMore) {
-            const messages = await channel.messages.fetch({ limit: 100, before: lastId || undefined });
+            const messages = await safeFetchMessages(channel, { limit: 100, before: lastId || undefined });
             if (messages.size === 0) break;
 
             msgCount += messages.size;
@@ -103,40 +102,34 @@ async function previewScan(client, interaction, channelMappings) {
 async function runManualRecount(client, interaction) {
     const liveConfig = sheetConfig.getCountConfig();
 
+    // ✅ Defer ทันทีเพื่อบอก Discord ว่าบอทรับรู้แล้ว (ป้องกัน Unknown interaction)
+    await interaction.deferReply({ flags: EPHEMERAL }).catch(() => {});
+
     return addRecountQueue(async () => {
         console.log('-----------------------------------');
         console.log('🧹 เริ่มประมวลผล Manual Recount แบบ 5 ช่องแชนแนลเรียงลำดับ...');
 
         try {
-            const auth = new google.auth.GoogleAuth({
-                credentials: { client_email: keys.client_email, private_key: keys.private_key },
-                scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-            });
-            const sheets = google.sheets({ version: 'v4', auth });
-
             const spreadsheetId = liveConfig.SPREADSHEET_ID;
             const sheetName = liveConfig.SHEET_NAME;
 
             if (!spreadsheetId || !sheetName) {
-                await interaction.reply({ content: '❌ ยังไม่ได้ตั้งค่า SPREADSHEET_ID หรือ SHEET_NAME', flags: EPHEMERAL });
+                await interaction.editReply({ content: '❌ ยังไม่ได้ตั้งค่า SPREADSHEET_ID หรือ SHEET_NAME' });
                 setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
                 return;
             }
 
-            // ✅ สร้างข้อความใหม่แยกจากแผงควบคุม
-            await interaction.reply({
-                content: '🔍 **กำลังสแกนข้อมูล...**\nกำลังนับจำนวนข้อความและแท็กทั้งหมด กรุณารอสักครู่...',
-                flags: EPHEMERAL
+            // ✅ อัปเดตสถานะผ่าน editReply (reply แล้ว)
+            await interaction.editReply({
+                content: '🔍 **กำลังสแกนข้อมูล...**\nกำลังนับจำนวนข้อความและแท็กทั้งหมด กรุณารอสักครู่...'
             });
 
-            await sheets.spreadsheets.values.clear({
-                spreadsheetId: spreadsheetId,
-                range: `${sheetName}!C4:G`,
+            await safeClearValues(spreadsheetId, `${sheetName}!C4:G`, {
+                operation: 'CountCase-clear'
             });
 
-            const response = await sheets.spreadsheets.values.get({
-                spreadsheetId: spreadsheetId,
-                range: `${sheetName}!A:G`,
+            const response = await safeGetValues(spreadsheetId, `${sheetName}!A:G`, {
+                operation: 'CountCase-get'
             });
 
             let rows = response.data.values || [];
@@ -177,7 +170,7 @@ async function runManualRecount(client, interaction) {
                 let hasMore = true;
 
                 while (hasMore) {
-                    const messages = await channel.messages.fetch({ limit: 100, before: lastId || undefined });
+                    const messages = await safeFetchMessages(channel, { limit: 100, before: lastId || undefined });
                     if (messages.size === 0) break;
 
                     for (const msg of messages.values()) {
@@ -254,11 +247,8 @@ async function runManualRecount(client, interaction) {
                 }
             }
 
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: spreadsheetId,
-                range: `${sheetName}!A1`,
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: rows }
+            await safeUpdateValues(spreadsheetId, `${sheetName}!A1`, rows, {
+                operation: 'CountCase-update'
             });
 
             const finalUserCount = userCache.size;

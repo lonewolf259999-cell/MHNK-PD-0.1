@@ -5,12 +5,19 @@
 const sheetConfig = require('../../utils/sheetConfig');
 const logCase = require('./logCase');
 const { processAndSend, extractContent } = require('./processAndSend');
+const { safeFetchMessages } = require('../../utils/discordSafe');
 
 const MAX_SCAN = 500;
 
 async function runResendMissed(client, interaction, abortSignal = null) {
     const logChannelId = sheetConfig.getBypdLogChannelId();
     const guild = interaction.guild;
+
+    // ✅ 0. กู้คืนจาก .bak ถ้า .json ว่างแต่ .bak มีข้อมูล
+    const recovered = logCase.recoverFromBackup();
+    if (recovered) {
+        console.log(`✅ [resendMissed] กู้คืน ${recovered.size} ID จาก .bak แล้ว`);
+    }
 
     // ✅ 1. โหลดแคช
     await logCase.loadCache();
@@ -35,7 +42,7 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         const options = { limit: 100 };
         if (lastId) options.before = lastId;
 
-        const messages = await logChannel.messages.fetch(options);
+        const messages = await safeFetchMessages(logChannel, options);
         if (messages.size === 0) break;
 
         allMessages.push(...Array.from(messages.values()));
@@ -55,7 +62,31 @@ async function runResendMissed(client, interaction, abortSignal = null) {
     const totalFound = missedMessages.length;
     console.log(`📊 ข้อความ BYPD ที่ยังไม่ส่ง: ${totalFound}`);
 
+    // ✅ ถ้าไม่เจอข้อความที่ต้องส่งใหม่ แต่มี ID ค้างใน IDMissedLog → batch ขึ้น Sheet
+    const pendingIds = Array.from(logCase.loadMissedLogFile());
     if (totalFound === 0) {
+        if (pendingIds.length > 0) {
+            console.log(`📊 พบ ID ค้างใน IDMissedLog: ${pendingIds.length} — กำลัง batch ขึ้น Sheet`);
+            try {
+                await logCase.saveBatchToSheet(pendingIds);
+                logCase.clearMissedLog();
+                return {
+                    success: true,
+                    count: 0,
+                    found: 0,
+                    failed: 0,
+                    message: `✅ บันทึก ID ที่ค้างอยู่ ${pendingIds.length} ID ลง Sheet แล้ว`
+                };
+            } catch (batchErr) {
+                return {
+                    success: true,
+                    count: 0,
+                    found: 0,
+                    failed: 0,
+                    message: `⚠️ พบ ID ค้าง ${pendingIds.length} ID แต่บันทึก Sheet ไม่สำเร็จ — กดปุ่มอีกครั้ง`
+                };
+            }
+        }
         return { 
             success: true, 
             count: 0, 
@@ -101,14 +132,19 @@ async function runResendMissed(client, interaction, abortSignal = null) {
     // ✅ 5. ดึง ID ที่ส่งสำเร็จจาก IDMissedLog แล้ว batch ขึ้น Sheet
     const missedLogIds = Array.from(logCase.loadMissedLogFile());
     
+    let batchSuccess = false;
     if (missedLogIds.length > 0) {
         try {
             await logCase.saveBatchToSheet(missedLogIds);
-            logCase.clearMissedLog();
+            logCase.clearMissedLog(); // ล้างทั้ง .json และ .bak
             console.log(`✅ [resendMissed] ลงชีต batch ${missedLogIds.length} ID + ล้าง IDMissedLog.json แล้ว`);
+            batchSuccess = true;
         } catch (batchErr) {
             console.error('❌ [resendMissed] batch ลง Sheet ล้มเหลว:', batchErr.message);
+            console.log('📝 ข้อมูลยังอยู่ใน IDMissedLog.json — กดส่งย้อนหลังอีกครั้งเพื่อลองใหม่');
         }
+    } else {
+        batchSuccess = true; // ไม่มี ID ค้าง → ถือว่าสำเร็จ
     }
 
     // ✅ สร้างข้อความผลลัพธ์
@@ -117,6 +153,12 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         message = `⏹️ **หยุดส่งย้อนหลังแล้ว**
 ` +
             `📊 พบ: ${totalFound} | ส่งสำเร็จ: ${sentCount} | ล้มเหลว: ${failedCount}`;
+    } else if (!batchSuccess) {
+        message = `⚠️ **ส่งย้อนหลังเสร็จ แต่บันทึก Sheet ไม่สำเร็จ**
+` +
+            `📊 พบ: ${totalFound} | ส่งสำเร็จ: ${sentCount} | ล้มเหลว: ${failedCount}
+` +
+            `📝 IDMissedLog.json ยังคงอยู่ — กดปุ่มอีกครั้งเพื่อลองบันทึกใหม่`;
     } else {
         message = `✅ **ส่งย้อนหลังเสร็จสิ้น**
 ` +

@@ -34,6 +34,13 @@ async function _executeRegister(icName, userId) {
         const { spreadsheetId, sheetName } = getRegistry();
         const sheets = google.sheets({ version: 'v4', auth });
 
+        // ✅ เช็คซ้ำอีกครั้ง ตอนถึงคิวนี้จริง — ป้องกันกดติดๆ กัน
+        const already = await isAlreadyRegistered(userId);
+        if (already) {
+            console.log(`⚠️ [SHEET] ${userId} สมัครซ้ำ (ตรวจพบใน Queue) — ข้าม`);
+            return null;
+        }
+
         // 1. ดึงข้อมูลในคอลัมน์ C และ D เพื่อหาแถวที่ว่าง
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,

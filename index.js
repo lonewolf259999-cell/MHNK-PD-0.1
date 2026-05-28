@@ -49,12 +49,37 @@ const sheetConfig = require('./utils/sheetConfig');
 const loadFeatures = require('./handlers/featureHandler');
 const loadConfig = require('./config/configPanel');
 
+// ===== API MONITORING (for health checks) =====
+const apiSafe = require('./utils/apiSafe');
+const discordSafe = require('./utils/discordSafe');
+
+function getApiHealth() {
+    return {
+        googleSheets: apiSafe.getRateLimitStats(),
+        discord: discordSafe.getRateLimitStats(),
+        memory: {
+            heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+            heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB'
+        }
+    };
+}
+
 // ===== KEEP-ALIVE HTTP SERVER =====
 const server = http.createServer((req, res) => {
     heartbeat();
     if (req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), timestamp: Date.now() }));
+        res.end(JSON.stringify({ 
+            status: 'ok', 
+            uptime: process.uptime(), 
+            timestamp: Date.now(),
+            api: getApiHealth()
+        }));
+        return;
+    }
+    if (req.url === '/health/apis') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(getApiHealth()));
         return;
     }
     res.writeHead(200, { 'Content-Type': 'text/plain' });

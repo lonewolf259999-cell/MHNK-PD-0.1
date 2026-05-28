@@ -3,11 +3,13 @@
 // คอลัมน์: หาแถว=D | ไม่เจอ→ลงชื่อที่ D แถว 300+ | ออกงาน=J,K | Steam=M | สะสม=O–U
 // =================================================================
 
-const { google } = require('googleapis');
-const path = require('path');
 const sheetConfig = require('../../utils/sheetConfig');
-
-const keys = require(path.join(__dirname, '../../credentials.json'));
+const {
+    safeGetValues,
+    safeUpdateValues,
+    safeBatchUpdateValues,
+    createSheetsClient
+} = require('../../utils/apiSafe');
 
 const NEW_ROW_MIN = 300;
 const COL = {
@@ -17,14 +19,6 @@ const COL = {
     STEAM: 'M'
 };
 
-const auth = new google.auth.GoogleAuth({
-    credentials: {
-        client_email: keys.client_email,
-        private_key: keys.private_key
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-});
-
 const LOG_QUEUE_DELAY_MS = 800;
 const LOG_QUEUE_ESTIMATE_SEC = 1.5; // API + delay โดยประมาณต่อรายการ
 
@@ -32,7 +26,7 @@ const logQueue = [];
 let isProcessing = false;
 
 function getSheets() {
-    return google.sheets({ version: 'v4', auth });
+    return createSheetsClient();
 }
 
 function getRegistryTarget() {
@@ -82,7 +76,11 @@ function rowNameMatches(logName, dCell) {
 
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     const range = `${sheetName}!${COL.FIND_NAME}:${COL.FIND_NAME}`;
-    const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+    // Use safeGetValues for consistency, but also accept passed sheets client
+    // We call apiSafe directly regardless
+    const resp = await safeGetValues(spreadsheetId, range, {
+        operation: `logtime-findRow-${name}`
+    });
     const rowData = resp.data.values || [];
 
     // 1) เจอชื่อใน D แล้ว (แถว 3 ขึ้นไป รวมโซน 300+)
@@ -138,7 +136,9 @@ function buildMessageText(message) {
 
 async function accumulateTime(sheets, spreadsheetId, sheetName, col, row, newMinutes) {
     const range = `${sheetName}!${col}${row}`;
-    const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+    const resp = await safeGetValues(spreadsheetId, range, {
+        operation: `logtime-accumulate-${col}${row}`
+    });
     let currentVal = resp.data.values?.[0]?.[0] || '00:00';
 
     let oldMinutes = 0;
@@ -150,11 +150,8 @@ async function accumulateTime(sheets, spreadsheetId, sheetName, col, row, newMin
     const totalMinutes = oldMinutes + newMinutes;
     const timeString = minutesToHHmm(totalMinutes);
 
-    await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range,
-        valueInputOption: 'USER_ENTERED',
-        resource: { values: [[timeString]] }
+    await safeUpdateValues(spreadsheetId, range, [[timeString]], {
+        operation: `logtime-accumulate-update-${col}${row}`
     });
     return timeString;
 }
@@ -179,9 +176,8 @@ async function saveLog(info) {
     );
     if (id) updateData.push({ range: `${sheetName}!${COL.STEAM}${row}`, values: [[id]] });
 
-    await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
-        resource: { valueInputOption: 'USER_ENTERED', data: updateData }
+    await safeBatchUpdateValues(spreadsheetId, updateData, {
+        operation: `logtime-save-${name}`
     });
 
     const totalMinutes = timeToMinutes(duration);

@@ -2,8 +2,8 @@
 // ⚙️ utils/sheetConfig.js — โหลด config จาก Google Sheet แท็บ config (A:B)
 // =================================================================
 
-const { google } = require('googleapis');
 const path = require('path');
+const { safeGetValues, safeUpdateValues } = require('./apiSafe');
 
 const keys = require(path.join(__dirname, '../credentials.json'));
 
@@ -27,15 +27,6 @@ const DEFAULTS = {
 let rawData = {};
 let loaded = false;
 
-function getAuth() {
-    return new google.auth.GoogleAuth({
-        credentials: {
-            client_email: keys.client_email,
-            private_key: keys.private_key
-        },
-        scopes: ['https://www.googleapis.com/auth/spreadsheets']
-    });
-}
 
 function parseCountChannels(data) {
     if (data.COUNT_CHANNEL_IDS && data.COUNT_CHANNEL_IDS.trim()) {
@@ -59,8 +50,6 @@ function parseCountChannels(data) {
 }
 
 function buildViews(data) {
-    const warnings = [];
-
     const result = {
         count: {
             SPREADSHEET_ID: data.SPREADSHEET_ID || '',
@@ -82,10 +71,11 @@ function buildViews(data) {
         logSheetName: data.LOG_SHEET_NAME || DEFAULTS.LOG_SHEET_NAME
     };
 
-    // ✅ เช็คค่าที่ยังว่าง แล้วเพิ่ม warning (แสดงเฉพาะเมื่อ loaded แล้ว)
-    if (loaded) {
-        return result;
-    }
+    return result;
+}
+
+function checkWarnings(result) {
+    const warnings = [];
 
     const requiredFields = [
         ['welcomeChannelId', 'WELCOME_CHANNEL_ID'],
@@ -114,25 +104,15 @@ function buildViews(data) {
         }
     }
 
-    if (warnings.length > 0) {
-        console.log('\n🔶 === Config Warnings ===');
-        warnings.forEach(w => console.log(w));
-        console.log('🔶 กรุณาตั้งค่าใน Google Sheet แท็บ config แล้วกดปุ่ม รีเฟรช config\n');
-    }
-
-    return result;
+    return warnings;
 }
 
-let views = buildViews({});
+let views = {};
 
 async function loadSheetConfig() {
     try {
-        const auth = getAuth();
-        const sheets = google.sheets({ version: 'v4', auth });
-
-        const res = await sheets.spreadsheets.values.get({
-            spreadsheetId: CONFIG_SHEET_ID,
-            range: `${CONFIG_SHEET_NAME}!A:B`
+        const res = await safeGetValues(CONFIG_SHEET_ID, `${CONFIG_SHEET_NAME}!A:B`, {
+            operation: 'loadSheetConfig'
         });
 
         const rows = res.data.values || [];
@@ -147,6 +127,14 @@ async function loadSheetConfig() {
         rawData = data;
         views = buildViews(data);
         loaded = true;
+
+        // แสดง warnings เฉพาะเมื่อโหลดข้อมูลจาก Sheet จริงแล้ว
+        const warnings = checkWarnings(views);
+        if (warnings.length > 0) {
+            console.log('\n🔶 === Config Warnings ===');
+            warnings.forEach(w => console.log(w));
+            console.log('🔶 กรุณาตั้งค่าใน Google Sheet แท็บ config แล้วกดปุ่ม รีเฟรช config\n');
+        }
 
         console.log('✅ [CONFIG] โหลด config จาก Google Sheet สำเร็จ');
         console.log(`📌 BYPD Log Channel: ${views.bypdLogChannelId || '(ยังไม่ตั้ง)'}`);
@@ -164,9 +152,6 @@ async function loadSheetConfig() {
 
 // ✅ ใช้ cached rawData แทนการ GET Sheet ใหม่ทุกครั้ง
 async function writeConfigKeys(updates) {
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-
     // ✅ ใช้ rawData ที่ cache ไว้ + อ่าน Sheet เฉพาะเมื่อยังไม่ loaded
     const map = new Map();
     
@@ -176,16 +161,20 @@ async function writeConfigKeys(updates) {
             map.set(key, value);
         }
     } else {
-        // fallback: อ่านจาก Sheet
-        const res = await sheets.spreadsheets.values.get({
-            spreadsheetId: CONFIG_SHEET_ID,
-            range: `${CONFIG_SHEET_NAME}!A:B`
-        });
-        const rows = res.data.values || [];
-        for (const row of rows) {
-            if (row[0]) {
-                map.set(row[0], row[1] !== undefined ? row[1] : '');
+        // fallback: อ่านจาก Sheet (ใช้ safe API)
+        try {
+            const res = await safeGetValues(CONFIG_SHEET_ID, `${CONFIG_SHEET_NAME}!A:B`, {
+                operation: 'writeConfigKeys-fallback'
+            });
+            const rows = res.data.values || [];
+            for (const row of rows) {
+                if (row[0]) {
+                    map.set(row[0], row[1] !== undefined ? row[1] : '');
+                }
             }
+        } catch (fetchErr) {
+            console.error('❌ [CONFIG] fallback fetch failed:', fetchErr.message);
+            // Continue with empty map
         }
     }
 
@@ -196,34 +185,24 @@ async function writeConfigKeys(updates) {
 
     const newRows = Array.from(map.entries()).map(([key, value]) => [key, value]);
 
-    let lastError;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: CONFIG_SHEET_ID,
-                range: `${CONFIG_SHEET_NAME}!A1`,
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: newRows }
-            });
-            break;
-        } catch (err) {
-            lastError = err;
-            console.error(`❌ [CONFIG] writeConfigKeys attempt ${attempt} ล้มเหลว:`, err.message);
-            if (attempt < 2) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-    }
-
-    if (lastError) {
-        throw lastError;
-    }
+    await safeUpdateValues(CONFIG_SHEET_ID, `${CONFIG_SHEET_NAME}!A1`, newRows, {
+        operation: 'writeConfigKeys',
+        maxRetries: 3
+    });
 
     // ✅ อัปเดต cache แทนการ reload ทั้งหมด
     for (const [key, value] of updates) {
         rawData[key] = value;
     }
     views = buildViews(rawData);
+    
+    // เช็ค warnings อีกครั้งหลังอัปเดต
+    const warnings = checkWarnings(views);
+    if (warnings.length > 0) {
+        console.log('\n🔶 === Config Warnings (หลังอัปเดต) ===');
+        warnings.forEach(w => console.log(w));
+        console.log('🔶 กรุณาตั้งค่าใน Google Sheet แท็บ config แล้วกดปุ่ม รีเฟรช config\n');
+    }
 }
 
 function isLoaded() {

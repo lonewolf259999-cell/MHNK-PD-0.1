@@ -5,6 +5,7 @@
 const { EmbedBuilder } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
 const logCase = require('./logCase');
+const { safeSendMessage, safeReact } = require('../../utils/discordSafe');
 
 // 🔒 Lock ป้องกันประมวลผลข้อความเดิมพร้อมกัน (race condition)
 const processingLocks = new Set();
@@ -74,7 +75,11 @@ function parseDetails(finalContent) {
     const lines = finalContent.split('\n');
     let officerInfo = "-", offenderInfo = "-", caseInfo = "-", jailInfo = "-", fineInfo = "-", timeInfo = "-";
 
-    for (const line of lines) {
+    for (const rawLine of lines) {
+        // ✅ ลบ ** (bold markdown) ก่อน parse เพราะ embed อาจมี ** คั่น
+        const line = rawLine.replace(/\*\*/g, '').trim();
+        if (!line) continue;
+
         if (line.includes("ผู้ต้องหา")) {
             const m = line.match(/ผู้ต้องหา\s+(.+?)(?:\s+ถูกจับโดย|$)/);
             offenderInfo = m ? m[1].trim() : "-";
@@ -147,16 +152,16 @@ async function processAndSend(message, options = {}) {
             )
             .setTimestamp();
 
-        // 🔄 Retry การส่ง
+        // 🔄 Retry การส่ง (ใช้ safeSendMessage)
         await retryAsync(async () => {
-            await sendChannel.send({ content: tagText, embeds: [embed] });
+            await safeSendMessage(sendChannel, { content: tagText, embeds: [embed] });
         });
 
         console.log(`✅ [BYPD System] ส่งข้อมูลเรียบร้อย ID: ${messageId}`);
 
-        // ✅ React + บันทึก (ไม่ block flow ถ้า error)
+        // ✅ React + บันทึก (ไม่ block flow ถ้า error) - ใช้ safeReact
         try {
-            await retryAsync(() => logCase.reactCheckmark(message));
+            await retryAsync(() => safeReact(message, '✅'));
         } catch (reactErr) {
             console.error(`⚠️ [processAndSend] React ล้มเหลว ID ${messageId}:`, reactErr.message);
         }

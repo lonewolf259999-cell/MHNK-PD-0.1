@@ -8,6 +8,7 @@ const sheetConfig = require('../../utils/sheetConfig');
 const { loadLog, saveLog } = require('./logic/messageLog');
 const { getTagsFromContent } = require('./logic/tagParser');
 const { processSheetBatch } = require('./logic/sheetUpdater');
+const { safeReact, safeFetchMessage } = require('../../utils/discordSafe');
 
 const LOG_FILE = path.join(__dirname, '../../data/messageLog.json');
 
@@ -53,7 +54,7 @@ module.exports = async (client) => {
             const tagList = getTagsFromContent(message);
             if (tagList.length === 0) return;
 
-            await message.react('✅').catch(() => {});
+            await safeReact(message, '✅');
 
             const log = loadLog(LOG_FILE);
             if (log[message.id]) return;
@@ -74,9 +75,9 @@ module.exports = async (client) => {
             if (!sheetConfig.isLoaded() || !config.CHANNELS) return;
 
             if (message.partial) {
-                try { await message.fetch(); }
-                catch (fetchErr) {
-                    console.error('❌ [CountAuto] ไม่สามารถ fetch ข้อความที่ถูกลบ:', fetchErr.message);
+                const fetched = await safeFetchMessage(message.channel, message.id);
+                if (!fetched) {
+                    console.error('❌ [CountAuto] ไม่สามารถ fetch ข้อความที่ถูกลบ');
                     return;
                 }
             }
@@ -100,9 +101,9 @@ module.exports = async (client) => {
             if (!sheetConfig.isLoaded() || !config.CHANNELS) return;
 
             if (newM.partial) {
-                try { await newM.fetch(); }
-                catch (fetchErr) {
-                    console.error('❌ [CountAuto] ไม่สามารถ fetch ข้อความที่ถูกแก้ไข:', fetchErr.message);
+                const fetched = await safeFetchMessage(newM.channel, newM.id);
+                if (!fetched) {
+                    console.error('❌ [CountAuto] ไม่สามารถ fetch ข้อความที่ถูกแก้ไข');
                     return;
                 }
             }
