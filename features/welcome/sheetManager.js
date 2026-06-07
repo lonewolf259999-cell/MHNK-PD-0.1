@@ -78,7 +78,8 @@ async function _executeRegister(icName, userId) {
 
         const finalNickname = `${codeNumber} [MHNK-PD] ${icName}`;
         const today = new Date();
-        const formattedDate = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear() + 543}`;
+        const formattedDate = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
+
         const mentionFormat = `'<@${userId}>`;
 
         // บันทึกข้อมูลลงในแถวเป้าหมาย (คอลัมน์ D: ชื่อใหม่ | คอลัมน์ E: Discord ID | คอลัมน์ F: "นักเรียนตำรวจ")
