@@ -78,36 +78,6 @@ module.exports = async (client) => {
 
     // 3. ระบบตรวจจับการกดปุ่มและการส่งข้อมูลผ่านหน้าต่าง Modal
     client.on('interactionCreate', async (interaction) => {
-        // ✅ ปุ่มคัดลอกชื่อไป Fivem
-        if (interaction.isButton() && interaction.customId.startsWith('btn_copy_name_')) {
-            try {
-                const message = interaction.message;
-                const embed = message.embeds[0];
-                const field = embed && embed.fields ? embed.fields.find(f => f.name.includes('ชื่อในระบบ')) : null;
-                if (field) {
-                    const name = field.value.replace(/`/g, '').trim();
-                    await interaction.reply({
-                        content: `📋 คัดลอกข้อความนี้ไปวางใน Fivem:\n\`\`\`${name}\`\`\``,
-                        flags: [MessageFlags.Ephemeral]
-                    });
-                } else {
-                    await interaction.reply({
-                        content: '❌ ไม่พบชื่อในระบบ โปรดลองอีกครั้ง',
-                        flags: [MessageFlags.Ephemeral]
-                    });
-                }
-            } catch (err) {
-                console.error('❌ [welcome] ปุ่ม copy error:', err);
-                if (!interaction.replied) {
-                    await interaction.reply({
-                        content: '❌ เกิดข้อผิดพลาด',
-                        flags: [MessageFlags.Ephemeral]
-                    }).catch(() => {});
-                }
-            }
-            return;
-        }
-
         const isRegister = (interaction.isButton() && interaction.customId === 'btn_register_pd')
             || (interaction.isModalSubmit() && interaction.customId === 'modal_register_pd');
         if (!isRegister) return;
@@ -234,7 +204,7 @@ module.exports = async (client) => {
                         .addFields(
                             { name: '🆔 Discord ID', value: `\`${userId}\``, inline: true },
                             { name: '📛 ชื่อ IC', value: `${icName}`, inline: true },
-                            { name: '⚙️ ชื่อในระบบ', value: `\`${discordNickname}\``, inline: false },
+                            { name: '⚙️ ชื่อในระบบ', value: `📋 คัดลอกไปวางใน Fivem ก่อนเข้าประเทศ\n> \`${discordNickname}\``, inline: false },
                             { name: '📞 เบอร์โทร IC', value: `${icPhone}`, inline: true },
                             { name: '🎂 อายุ OOC', value: `${oocAge} ปี`, inline: true },
                             { name: '🏷️ ตำแหน่ง', value: `นักเรียนตำรวจ`, inline: true },
@@ -242,14 +212,7 @@ module.exports = async (client) => {
                         )
                         .setTimestamp();
 
-                    const copyRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`btn_copy_name_${userId}`)
-                            .setLabel('📋 คัดลอกชื่อไป Fivem')
-                            .setStyle(ButtonStyle.Secondary)
-                    );
-
-                    await logChannel.send({ content: `<@${userId}>`, embeds: [logEmbed], components: [copyRow] });
+                    await logChannel.send({ content: `<@${userId}>`, embeds: [logEmbed] });
                 }
 
                 let successMessage = `✅ ลงทะเบียนเรียบร้อยแล้ว!\n📝 **ชื่อในชีต:** ${fullNickname}\n🔄 **ชื่อ Discord:** ${discordNickname}\n📊 ระบบทำการบันทึกข้อมูลและตั้งค่าให้คุณเป็น **นักเรียนตำรวจ** เรียบร้อยแล้วครับ`;
