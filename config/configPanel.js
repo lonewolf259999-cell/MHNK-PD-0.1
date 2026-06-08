@@ -1,12 +1,13 @@
 // =================================================================
-// ⚙️ config/configPanel.js — แผงควบคุม 6 ปุ่ม + Modal ตั้งค่า
+// ⚙️ config/configPanel.js — แผงควบคุม 6 ปุ่ม + Modal ตั้งค่า + /editphone
 // =================================================================
 
-const { REST, Routes, Events, SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { REST, Routes, Events, SlashCommandBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder } = require('discord.js');
 const { handleInteractionError } = require('../utils/interactionSafe');
 const { createPanelEmbed, buildPanelComponents, sendPanelToChannel } = require('./panelBuilder');
 const { buildCountModal, buildWelcomeModal, buildBypdModal, buildRegistryModal } = require('./modals');
 const { handleRefreshConfig, handleManualCount, handleCountSave, handleWelcomeSave, handleBypdSave, handleRegistrySave, tryRefreshPanelMessage, handleResendBypd } = require('./actions');
+const sheetConfig = require('../utils/sheetConfig');
 const EPHEMERAL = MessageFlags.Ephemeral;
 
 const CONFIG_PANEL_IDS = new Set([
@@ -16,7 +17,7 @@ const CONFIG_PANEL_IDS = new Set([
     'btn_cfg_welcome',
     'btn_cfg_bypd',
     'btn_cfg_registry',
-    'btn_resend_bypd',        // ✅ ปุ่มส่งย้อนหลัง BYPD
+    'btn_resend_bypd',
     'modal_cfg_count',
     'modal_cfg_welcome',
     'modal_cfg_bypd',
@@ -52,7 +53,10 @@ module.exports = async (client) => {
             const commands = [
                 new SlashCommandBuilder()
                     .setName('recount')
-                    .setDescription('⚙️ แผงควบคุมตั้งค่าและนับยอดเคส')
+                    .setDescription('⚙️ แผงควบคุมตั้งค่าและนับยอดเคส'),
+                new SlashCommandBuilder()
+                    .setName('editphone')
+                    .setDescription('📞 แก้ไขเบอร์โทร IC ของคุณ')
             ].map(cmd => cmd.toJSON());
 
             const rest = new REST({ version: '10' }).setToken(client.token);
@@ -65,6 +69,88 @@ module.exports = async (client) => {
     });
 
     client.on('interactionCreate', async (interaction) => {
+        // =================================================================
+        // ✅ /editphone — ทุกคนใช้ได้ ไม่ต้องเช็ค admin
+        // =================================================================
+        if (interaction.isChatInputCommand() && interaction.commandName === 'editphone') {
+            const modal = new ModalBuilder()
+                .setCustomId('modal_edit_phone')
+                .setTitle('📞 แก้ไขเบอร์โทร IC')
+                .addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('input_new_phone')
+                            .setLabel('เบอร์โทร IC ใหม่')
+                            .setStyle(TextInputStyle.Short)
+                            .setPlaceholder('กรุณากรอกเบอร์โทรใหม่')
+                            .setRequired(true)
+                    )
+                );
+            return await interaction.showModal(modal);
+        }
+
+        // =================================================================
+        // ✅ modal_edit_phone submit — ทุกคนใช้ได้
+        // =================================================================
+        if (interaction.isModalSubmit() && interaction.customId === 'modal_edit_phone') {
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+            try {
+                const newPhone = interaction.fields.getTextInputValue('input_new_phone').trim();
+                const userId = interaction.user.id;
+
+                // หา Log channel ID
+                const logChannelId = sheetConfig.getLogChannelId();
+                if (!logChannelId) {
+                    return await interaction.editReply({ content: '❌ ไม่ได้ตั้งค่า Log channel' });
+                }
+
+                const logChannel = interaction.guild.channels.cache.get(logChannelId);
+                if (!logChannel) {
+                    return await interaction.editReply({ content: '❌ ไม่พบ Log channel ในเซิร์ฟเวอร์นี้' });
+                }
+
+                // ค้นหา Embed ที่มี Discord ID ตรงกับ userId
+                let found = false;
+                const messages = await logChannel.messages.fetch({ limit: 100 });
+                for (const msg of messages.values()) {
+                    if (msg.embeds.length === 0) continue;
+                    const embed = msg.embeds[0];
+                    const discordIdField = embed.fields?.find(f => f.name.includes('Discord ID'));
+                    if (!discordIdField) continue;
+                    const idInEmbed = discordIdField.value.replace(/`/g, '').trim();
+                    if (idInEmbed !== userId) continue;
+
+                    // เจอแล้ว — แก้ไข Embed
+                    const newEmbed = EmbedBuilder.from(embed)
+                        .spliceFields(3, 1, { name: '📞 เบอร์โทร IC', value: `${newPhone}`, inline: true });
+                    await msg.edit({ embeds: [newEmbed] });
+
+                    found = true;
+                    break;
+                }
+
+                if (!found) {
+                    return await interaction.editReply({
+                        content: '❌ ไม่พบประวัติการลงทะเบียนของคุณใน Log channel'
+                    });
+                }
+
+                await interaction.editReply({
+                    content: `✅ อัปเดตเบอร์โทรเป็น **${newPhone}** เรียบร้อยแล้ว!`
+                });
+
+            } catch (err) {
+                console.error('❌ [editphone] error:', err);
+                await interaction.editReply({
+                    content: '❌ เกิดข้อผิดพลาด โปรดลองอีกครั้งหรือแจ้งเจ้าหน้าที่'
+                });
+            }
+            return;
+        }
+
+        // =================================================================
+        // ✅ ระบบเดิม — แผงควบคุม + ปุ่ม + Modal (เฉพาะ admin)
+        // =================================================================
         const isPanel = (interaction.isChatInputCommand() && interaction.commandName === 'recount')
             || ((interaction.isButton() || interaction.isModalSubmit()) && isPanelInteraction(interaction));
         if (!isPanel) return;
@@ -99,7 +185,6 @@ module.exports = async (client) => {
 
             // --- ปุ่ม: เริ่มนับข้อความเก่า ---
             if (interaction.customId === 'btn_trigger_manual_count') {
-                // ✅ ไม่ต้อง deferUpdate — ให้ CountCase reply เอง
                 await handleManualCount(client, interaction);
                 return;
             }
@@ -210,3 +295,4 @@ module.exports = async (client) => {
         }
     });
 };
+
