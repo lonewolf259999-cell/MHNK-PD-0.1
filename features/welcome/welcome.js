@@ -204,7 +204,7 @@ module.exports = async (client) => {
                         .addFields(
                             { name: '🆔 Discord ID', value: `\`${userId}\``, inline: true },
                             { name: '📛 ชื่อ IC', value: `${icName}`, inline: true },
-                            { name: '⚙️ ชื่อในระบบ', value: `📋 คัดลอกไปวางใน Fivem ก่อนเข้าประเทศ\n> \`${discordNickname}\``, inline: false },
+                            { name: '⚙️ ชื่อในระบบ', value: `\`${discordNickname}\``, inline: false },
                             { name: '📞 เบอร์โทร IC', value: `${icPhone}`, inline: true },
                             { name: '🎂 อายุ OOC', value: `${oocAge} ปี`, inline: true },
                             { name: '🏷️ ตำแหน่ง', value: `นักเรียนตำรวจ`, inline: true },
@@ -213,7 +213,7 @@ module.exports = async (client) => {
                         .setTimestamp();
 
                     await logChannel.send({ content: `<@${userId}>`, embeds: [logEmbed] });
-                    await logChannel.send(`\`\`\`${discordNickname}\`\`\``);
+                    await logChannel.send(`📋 คัดลอกไปวางใน Fivem ใน ⚙️ ก่อนเข้าประเทศ\n\n> \`${discordNickname}\``);
                 }
 
                 let successMessage = `✅ ลงทะเบียนเรียบร้อยแล้ว!\n📝 **ชื่อในชีต:** ${fullNickname}\n🔄 **ชื่อ Discord:** ${discordNickname}\n📊 ระบบทำการบันทึกข้อมูลและตั้งค่าให้คุณเป็น **นักเรียนตำรวจ** เรียบร้อยแล้วครับ`;
