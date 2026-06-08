@@ -1,5 +1,5 @@
 // =================================================================
-// 🔄 features/get-tags/resendMissed.js — ส่งย้อนหลัง BYPD + Proctor (แบบมี Progress)
+// 🔄 features/get-tags/resendMissed.js — ส่งย้อนหลัง BYPD + Proctor (เร็ว ไม่ fetch ซ้ำ)
 // =================================================================
 
 const sheetConfig = require('../../utils/sheetConfig');
@@ -11,9 +11,8 @@ const { extractContent } = processAndSendBypd;
 /**
  * runResendMissed — สแกนย้อนหลังทั้งหมด + ส่ง + รายงานความคืบหน้า
  * @param {import('discord.js').Client} client
- * @param {import('discord.js').CommandInteraction} interaction - สำหรับ editReply อัปเดตความคืบหน้า
+ * @param {import('discord.js').CommandInteraction} interaction
  * @param {AbortSignal|null} abortSignal
- * @returns {Promise<Object>} { success, count, found, failed, message }
  */
 async function runResendMissed(client, interaction, abortSignal = null) {
     const logChannelId = sheetConfig.getLogCaseChannelId();
@@ -25,18 +24,19 @@ async function runResendMissed(client, interaction, abortSignal = null) {
     }
 
     // =============================================================
-    // ระยะที่ 1: นับจำนวนข้อความทั้งหมด (สแกนแค่ ID ไม่ดึง content)
+    // ระยะที่ 1: ดึงข้อความทั้งหมดทีละ 100 (ใช้ safeFetchMessages)
+    // safeFetchMessages ได้ message objects ครบ พร้อม content, embed, reactions
     // =============================================================
-    await interaction.editReply({ content: '⏳ กำลังนับจำนวนข้อความใน LogCase...' });
+    await interaction.editReply({ content: '⏳ กำลังสแกนข้อความใน LogCase...' });
 
-    const allMessageIds = [];
+    const allBatches = [];  // แต่ละ batch = array of Message objects (100 ตัว)
     let lastId = null;
 
     while (true) {
         if (abortSignal?.aborted) {
             return {
                 success: true, count: 0, found: 0, failed: 0,
-                message: '⏹️ ถูกหยุดระหว่างนับจำนวนข้อความ'
+                message: '⏹️ ถูกหยุดระหว่างสแกนข้อความ'
             };
         }
 
@@ -46,11 +46,11 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         const messages = await safeFetchMessages(logChannel, options);
         if (messages.size === 0) break;
 
-        allMessageIds.push(...Array.from(messages.keys()));
+        allBatches.push(Array.from(messages.values()));
         lastId = messages.last().id;
     }
 
-    const totalMessages = allMessageIds.length;
+    const totalMessages = allBatches.reduce((sum, b) => sum + b.length, 0);
     console.log(`📊 พบทั้งหมด ${totalMessages} ข้อความ`);
 
     if (totalMessages === 0) {
@@ -61,8 +61,17 @@ async function runResendMissed(client, interaction, abortSignal = null) {
     }
 
     // =============================================================
-    // ระยะที่ 2: ประมวลผลทีละ 100 ข้อความ
+    // ระยะที่ 2: ประมวลผลจากเก่าสุด → ใหม่สุด
+    // allBatches[0] = 100 ข้อความล่าสุด (fetched รอบแรก)
+    // allBatches[n] = ข้อความเก่าสุด (fetched รอบสุดท้าย)
+    // ต้อง reverse เพื่อให้ได้เก่าสุด→ใหม่สุด
     // =============================================================
+    allBatches.reverse();
+    // แต่ละ batch ภายในต้อง reverse ด้วย (fetched ล่าสุด→เก่า)
+    for (const batch of allBatches) {
+        batch.reverse();
+    }
+
     await interaction.editReply({
         content: `📊 พบทั้งหมด **${totalMessages}** ข้อความ กำลังเริ่มประมวลผล...`
     });
@@ -71,45 +80,22 @@ async function runResendMissed(client, interaction, abortSignal = null) {
     let bypdSentNow = 0;
     let proctorSentNow = 0;
     let failedCount = 0;
-    let bypdAlreadySent = 0;   // มี ✅ อยู่ก่อนแล้ว
+    let bypdAlreadySent = 0;
     let proctorAlreadySent = 0;
     let stopped = false;
 
-    // ประมวลผลจากเก่าสุด→ใหม่สุด (reverse order)
-    for (let batchStart = 0; batchStart < allMessageIds.length; batchStart += 100) {
+    // ประมวลผลทีละ batch (100 ข้อความ) — ใช้ข้อมูลที่มีอยู่แล้ว ไม่ต้อง fetch ซ้ำ
+    for (const batch of allBatches) {
         if (abortSignal?.aborted) {
-            console.log(`⏹️ [resendMissed] ถูกหยุดที่ ${scannedCount}/${totalMessages}`);
             stopped = true;
             break;
-        }
-
-        const batchIds = allMessageIds.slice(batchStart, batchStart + 100);
-        const batchMessages = [];
-
-        // ดึงข้อความทีละ ID
-        for (const id of batchIds) {
-            try {
-                const msg = await logChannel.messages.fetch(id);
-                batchMessages.push(msg);
-            } catch {
-                // ข้อความถูกลบแล้ว
-            }
-        }
-
-        // fetch content + reactions ให้ครบ
-        for (const msg of batchMessages) {
-            try {
-                await msg.fetch();
-            } catch {
-                // ข้าม
-            }
         }
 
         // กรอง BYPD + Proctor ที่ยังไม่มี ✅
         const toSendBypd = [];
         const toSendProctor = [];
 
-        for (const msg of batchMessages) {
+        for (const msg of batch) {
             const content = extractContent(msg);
             const embed = msg.embeds?.[0];
 
@@ -130,7 +116,7 @@ async function runResendMissed(client, interaction, abortSignal = null) {
             }
         }
 
-        // ส่ง BYPD ก่อน (เรียงตามลำดับ)
+        // ส่ง BYPD ก่อน
         for (const msg of toSendBypd) {
             if (abortSignal?.aborted) { stopped = true; break; }
             try {
@@ -160,9 +146,9 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         }
         if (stopped) break;
 
-        scannedCount += batchMessages.length;
+        scannedCount += batch.length;
 
-        // ✅ อัปเดตความคืบหน้าทุก 100 ข้อความ
+        // ✅ อัปเดตความคืบหน้าทุก batch (100 ข้อความ)
         const progressMsg =
             `📊 **${scannedCount}/${totalMessages}** | ` +
             `BYPD: ส่งแล้ว ${bypdSentNow} ✅ | ` +
