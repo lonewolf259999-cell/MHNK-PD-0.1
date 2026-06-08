@@ -1,5 +1,5 @@
 // =================================================================
-// 🔄 features/get-tags/resendMissed.js — ส่งย้อนหลัง BYPD + Proctor (ไม่มี Tracking ID)
+// 🔄 features/get-tags/resendMissed.js — ส่งย้อนหลัง BYPD + Proctor (แบบมี Progress)
 // =================================================================
 
 const sheetConfig = require('../../utils/sheetConfig');
@@ -8,8 +8,13 @@ const proctorModule = require('../proctor/proctor');
 const { safeFetchMessages } = require('../../utils/discordSafe');
 const { extractContent } = processAndSendBypd;
 
-const MAX_SCAN = 500;
-
+/**
+ * runResendMissed — สแกนย้อนหลังทั้งหมด + ส่ง + รายงานความคืบหน้า
+ * @param {import('discord.js').Client} client
+ * @param {import('discord.js').CommandInteraction} interaction - สำหรับ editReply อัปเดตความคืบหน้า
+ * @param {AbortSignal|null} abortSignal
+ * @returns {Promise<Object>} { success, count, found, failed, message }
+ */
 async function runResendMissed(client, interaction, abortSignal = null) {
     const logChannelId = sheetConfig.getLogCaseChannelId();
     const guild = interaction.guild;
@@ -19,16 +24,20 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         return { success: false, error: '❌ ไม่พบห้อง Log' };
     }
 
-    // ✅ 1. สแกนข้อความย้อนหลัง (สูงสุด 500)
-    const allMessages = [];
-    let lastId = null;
-    let fetched = 0;
+    // =============================================================
+    // ระยะที่ 1: นับจำนวนข้อความทั้งหมด (สแกนแค่ ID ไม่ดึง content)
+    // =============================================================
+    await interaction.editReply({ content: '⏳ กำลังนับจำนวนข้อความใน LogCase...' });
 
-    while (fetched < MAX_SCAN) {
-        // ✅ เช็ค abort ก่อน fetch รอบใหม่
+    const allMessageIds = [];
+    let lastId = null;
+
+    while (true) {
         if (abortSignal?.aborted) {
-            console.log('⏹️ [resendMissed] ถูกหยุดโดยผู้ใช้ระหว่างสแกน');
-            break;
+            return {
+                success: true, count: 0, found: 0, failed: 0,
+                message: '⏹️ ถูกหยุดระหว่างนับจำนวนข้อความ'
+            };
         }
 
         const options = { limit: 100 };
@@ -37,122 +46,154 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         const messages = await safeFetchMessages(logChannel, options);
         if (messages.size === 0) break;
 
-        allMessages.push(...Array.from(messages.values()));
-        fetched += messages.size;
+        allMessageIds.push(...Array.from(messages.keys()));
         lastId = messages.last().id;
     }
 
-    console.log(`📊 ข้อความทั้งหมดในห้อง Log: ${allMessages.length}`);
+    const totalMessages = allMessageIds.length;
+    console.log(`📊 พบทั้งหมด ${totalMessages} ข้อความ`);
 
-    // ✅ 2. fetch reactions ทุกข้อความให้ครบก่อนเช็ค (ป้องกัน partial cache)
-    for (const msg of allMessages) {
-        try {
-            await msg.fetch();
-        } catch (fetchErr) {
-            // ข้ามข้อความที่ fetch ไม่ได้ (ลบแล้ว/ไม่มีสิทธิ์)
-        }
-    }
-
-    // ✅ 3. กรองเฉพาะข้อความ BYPD + Proctor ที่ยังไม่มี ✅ reaction
-    const missedBypd = allMessages.filter(msg => {
-        const content = extractContent(msg);
-        if (!content.toUpperCase().includes('BYPD')) return false;
-        const hasCheckmark = msg.reactions.cache.some(r => r.emoji.name === '✅');
-        return !hasCheckmark;
-    });
-
-    const missedProctor = allMessages.filter(msg => {
-        const embed = msg.embeds?.[0];
-        if (!proctorModule.isProctorEmbed(embed)) return false;
-        const hasCheckmark = msg.reactions.cache.some(r => r.emoji.name === '✅');
-        return !hasCheckmark;
-    });
-
-    // ✅ นับจำนวนทั้งหมด
-    const totalBypd = allMessages.filter(msg => extractContent(msg).toUpperCase().includes('BYPD')).length;
-    const totalProctor = allMessages.filter(msg => {
-        const embed = msg.embeds?.[0];
-        return proctorModule.isProctorEmbed(embed);
-    }).length;
-    const alreadySentBypd = totalBypd - missedBypd.length;
-    const alreadySentProctor = totalProctor - missedProctor.length;
-    const totalFound = missedBypd.length + missedProctor.length;
-
-    console.log(`📊 BYPD: พบ ${totalBypd} | ส่งแล้ว ${alreadySentBypd} | รอส่ง ${missedBypd.length}`);
-    console.log(`📊 Proctor: พบ ${totalProctor} | ส่งแล้ว ${alreadySentProctor} | รอส่ง ${missedProctor.length}`);
-
-    if (totalFound === 0) {
-        return { 
-            success: true, 
-            count: 0, 
-            found: 0, 
-            failed: 0,
-            message: `✅ ไม่มีข้อความที่ยังไม่ได้ส่ง\n` +
-                `📊 BYPD: ${totalBypd} (ส่งแล้ว ${alreadySentBypd}) | ` +
-                `Proctor: ${totalProctor} (ส่งแล้ว ${alreadySentProctor})`
+    if (totalMessages === 0) {
+        return {
+            success: true, count: 0, found: 0, failed: 0,
+            message: '📊 ไม่พบข้อความในห้อง Log'
         };
     }
 
-    // ✅ 4. ส่งย้อนหลัง BYPD (เรียงจากเก่าไปใหม่)
-    let sentCount = 0;
-    let failedCount = 0;
-    let stopped = false;
-    const allMissed = [
-        ...missedBypd.reverse().map(msg => ({ msg, type: 'BYPD' })),
-        ...missedProctor.reverse().map(msg => ({ msg, type: 'Proctor' }))
-    ];
+    // =============================================================
+    // ระยะที่ 2: ประมวลผลทีละ 100 ข้อความ
+    // =============================================================
+    await interaction.editReply({
+        content: `📊 พบทั้งหมด **${totalMessages}** ข้อความ กำลังเริ่มประมวลผล...`
+    });
 
-    for (const { msg, type } of allMissed) {
-        // ✅ เช็ค abort ก่อนส่งแต่ละข้อความ
+    let scannedCount = 0;
+    let bypdSentNow = 0;
+    let proctorSentNow = 0;
+    let failedCount = 0;
+    let bypdAlreadySent = 0;   // มี ✅ อยู่ก่อนแล้ว
+    let proctorAlreadySent = 0;
+    let stopped = false;
+
+    // ประมวลผลจากเก่าสุด→ใหม่สุด (reverse order)
+    for (let batchStart = 0; batchStart < allMessageIds.length; batchStart += 100) {
         if (abortSignal?.aborted) {
-            console.log(`⏹️ [resendMissed] ถูกหยุดกลางทาง — ส่งสำเร็จ ${sentCount}/${totalFound}`);
+            console.log(`⏹️ [resendMissed] ถูกหยุดที่ ${scannedCount}/${totalMessages}`);
             stopped = true;
             break;
         }
 
-        try {
-            console.log(`🔄 กำลังส่งย้อนหลัง [${type}] ID: ${msg.id}`);
-            
-            let sent;
-            if (type === 'BYPD') {
-                sent = await processAndSendBypd.processAndSend(msg);
-            } else {
-                sent = await proctorModule.forwardProctorMessage(msg, client);
+        const batchIds = allMessageIds.slice(batchStart, batchStart + 100);
+        const batchMessages = [];
+
+        // ดึงข้อความทีละ ID
+        for (const id of batchIds) {
+            try {
+                const msg = await logChannel.messages.fetch(id);
+                batchMessages.push(msg);
+            } catch {
+                // ข้อความถูกลบแล้ว
+            }
+        }
+
+        // fetch content + reactions ให้ครบ
+        for (const msg of batchMessages) {
+            try {
+                await msg.fetch();
+            } catch {
+                // ข้าม
+            }
+        }
+
+        // กรอง BYPD + Proctor ที่ยังไม่มี ✅
+        const toSendBypd = [];
+        const toSendProctor = [];
+
+        for (const msg of batchMessages) {
+            const content = extractContent(msg);
+            const embed = msg.embeds?.[0];
+
+            const isBypd = content.toUpperCase().includes('BYPD');
+            const isProctor = proctorModule.isProctorEmbed(embed);
+            const hasCheckmark = msg.reactions.cache.some(r => r.emoji.name === '✅');
+
+            if (isBypd && !hasCheckmark) {
+                toSendBypd.push(msg);
+            } else if (isBypd && hasCheckmark) {
+                bypdAlreadySent++;
             }
 
-            if (sent) {
-                sentCount++;
-                console.log(`✅ ส่ง [${type}] สำเร็จ ID: ${msg.id}`);
-            } else {
+            if (isProctor && !hasCheckmark) {
+                toSendProctor.push(msg);
+            } else if (isProctor && hasCheckmark) {
+                proctorAlreadySent++;
+            }
+        }
+
+        // ส่ง BYPD ก่อน (เรียงตามลำดับ)
+        for (const msg of toSendBypd) {
+            if (abortSignal?.aborted) { stopped = true; break; }
+            try {
+                const sent = await processAndSendBypd.processAndSend(msg);
+                if (sent) bypdSentNow++;
+                else failedCount++;
+                await new Promise(resolve => setTimeout(resolve, 500));
+            } catch (err) {
+                console.error(`❌ ส่ง BYPD ID ${msg.id}:`, err.message);
                 failedCount++;
             }
-
-            // ✅ หน่วงเวลาเพื่อป้องกัน rate limit
-            await new Promise(resolve => setTimeout(resolve, 500));
-        } catch (err) {
-            console.error(`❌ ส่งย้อนหลัง [${type}] msg ${msg.id} ล้มเหลว:`, err.message);
-            failedCount++;
         }
+        if (stopped) break;
+
+        // ส่ง Proctor ต่อ
+        for (const msg of toSendProctor) {
+            if (abortSignal?.aborted) { stopped = true; break; }
+            try {
+                const sent = await proctorModule.forwardProctorMessage(msg, client);
+                if (sent) proctorSentNow++;
+                else failedCount++;
+                await new Promise(resolve => setTimeout(resolve, 500));
+            } catch (err) {
+                console.error(`❌ ส่ง Proctor ID ${msg.id}:`, err.message);
+                failedCount++;
+            }
+        }
+        if (stopped) break;
+
+        scannedCount += batchMessages.length;
+
+        // ✅ อัปเดตความคืบหน้าทุก 100 ข้อความ
+        const progressMsg =
+            `📊 **${scannedCount}/${totalMessages}** | ` +
+            `BYPD: ส่งแล้ว ${bypdSentNow} ✅ | ` +
+            `Proctor: ส่งแล้ว ${proctorSentNow} ✅ | ` +
+            `ล้มเหลว: ${failedCount}`;
+
+        await interaction.editReply({ content: progressMsg });
     }
 
-    // ✅ สร้างข้อความผลลัพธ์
+    // =============================================================
+    // รายงานผลสรุป
+    // =============================================================
+    const totalSent = bypdSentNow + proctorSentNow;
+
     let message;
     if (stopped) {
         message = `⏹️ **หยุดส่งย้อนหลังแล้ว**\n` +
-            `📊 BYPD: ส่งสำเร็จ ${sentCount}/${totalFound}\n` +
-            `✅ BYPD ที่ส่งแล้วก่อนหน้า: ${alreadySentBypd}\n` +
-            `✅ Proctor ที่ส่งแล้วก่อนหน้า: ${alreadySentProctor}`;
+            `📊 สแกนไป: ${scannedCount}/${totalMessages}\n` +
+            `✅ BYPD: ${bypdSentNow} | Proctor: ${proctorSentNow} | ❌ ล้มเหลว: ${failedCount}\n` +
+            `📊 เคยส่งแล้วก่อนหน้า — BYPD: ${bypdAlreadySent} | Proctor: ${proctorAlreadySent}`;
     } else {
         message = `✅ **ส่งย้อนหลังเสร็จสิ้น**\n` +
-            `📊 พบ: ${totalFound} | ส่งสำเร็จ: ${sentCount} | ล้มเหลว: ${failedCount}\n` +
-            `✅ BYPD ที่ส่งแล้วก่อนหน้า: ${alreadySentBypd}\n` +
-            `✅ Proctor ที่ส่งแล้วก่อนหน้า: ${alreadySentProctor}`;
+            `📊 สแกนทั้งหมด: ${totalMessages} ข้อความ\n` +
+            `✅ BYPD: ${bypdSentNow} | Proctor: ${proctorSentNow} | ❌ ล้มเหลว: ${failedCount}\n` +
+            `📊 เคยส่งแล้วก่อนหน้า — BYPD: ${bypdAlreadySent} | Proctor: ${proctorAlreadySent}`;
     }
 
     return {
         success: true,
-        count: sentCount,
-        found: totalFound,
+        count: totalSent,
+        found: scannedCount,
         failed: failedCount,
         message
     };
