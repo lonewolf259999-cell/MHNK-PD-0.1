@@ -76,14 +76,36 @@ async function _executeRegister(icName, userId) {
             return null;
         }
 
-        const finalNickname = `${codeNumber} [MHNK-PD] ${icName}`;
+        const fullNickname = `${codeNumber} [MHNK-PD] ${icName}`;
         const today = new Date();
         const formattedDate = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
 
+        // ✅ Discord จำกัด Nickname สูงสุด 32 ตัว
+        const MAX_DISCORD_NICKNAME = 32;
+        let truncatedNickname = fullNickname;
+        if (fullNickname.length > MAX_DISCORD_NICKNAME) {
+            // พยายามตัดที่ช่องว่างก่อน เพื่อไม่ให้ตัดกลางคำ
+            const overflow = fullNickname.length - MAX_DISCORD_NICKNAME;
+            // ตัดส่วนที่เป็นชื่อ IC (ส่วนต่อจาก " [MHNK-PD] ") 
+            const prefixMatch = fullNickname.match(/^(.+? \[MHNK-PD\] )/);
+            if (prefixMatch) {
+                const prefix = prefixMatch[1];
+                const icPart = fullNickname.slice(prefix.length);
+                const availableForIC = MAX_DISCORD_NICKNAME - prefix.length;
+                if (availableForIC > 0) {
+                    truncatedNickname = prefix + icPart.slice(0, availableForIC);
+                } else {
+                    truncatedNickname = fullNickname.slice(0, MAX_DISCORD_NICKNAME);
+                }
+            } else {
+                truncatedNickname = fullNickname.slice(0, MAX_DISCORD_NICKNAME);
+            }
+        }
+
         const mentionFormat = `'<@${userId}>`;
 
-        // บันทึกข้อมูลลงในแถวเป้าหมาย (คอลัมน์ D: ชื่อใหม่ | คอลัมน์ E: Discord ID | คอลัมน์ F: "นักเรียนตำรวจ")
-        await safeUpdateValues(spreadsheetId, `${sheetName}!D${targetRowIndex}:F${targetRowIndex}`, [[finalNickname, mentionFormat, 'นักเรียนตำรวจ']], {
+        // ✅ บันทึกชื่อเต็มลงชีต (ไม่ตัด) คอลัมน์ D: ชื่อ | E: Discord ID | F: ตำแหน่ง
+        await safeUpdateValues(spreadsheetId, `${sheetName}!D${targetRowIndex}:F${targetRowIndex}`, [[fullNickname, mentionFormat, 'นักเรียนตำรวจ']], {
             operation: 'sheetManager-register-write'
         });
 
@@ -92,8 +114,10 @@ async function _executeRegister(icName, userId) {
             operation: 'sheetManager-register-date'
         });
 
-        console.log(`✅ [SHEET] บันทึกข้อมูลแถวที่ ${targetRowIndex} เรียบร้อย: ${finalNickname}`);
-        return finalNickname;
+        console.log(`✅ [SHEET] บันทึกข้อมูลแถวที่ ${targetRowIndex} เรียบร้อย: ${fullNickname}`);
+        
+        // ✅ คืนค่า nickname (ชื่อที่ตัดสำหรับ Discord), fullNickname (ชื่อเต็มในชีต), wasTruncated
+        return { nickname: truncatedNickname, fullNickname, wasTruncated: fullNickname.length > MAX_DISCORD_NICKNAME };
 
     } catch (error) {
         console.error('❌ [SHEET ERROR] เกิดข้อผิดพลาดในระบบ Google Sheets:', error);

@@ -158,25 +158,45 @@ module.exports = async (client) => {
                 const userId = interaction.user.id;
 
                 // ส่งเฉพาะ icName และ userId ไปจัดการที่ Sheet (เบอร์และอายุไม่ถูกส่งไปบันทึกใน Excel)
-                const finalNickname = await registerMemberToSheet(icName, userId);
+                const result = await registerMemberToSheet(icName, userId);
 
-                if (!finalNickname) {
+                if (!result || !result.nickname) {
                     return await interaction.editReply({
                         content: '❌ เกิดข้อผิดพลาด: ไม่พบแถวว่างในตาราง Google Sheets หรือเกิดปัญหาในระบบ โปรดแจ้งเจ้าหน้าที่'
-    });
+                    });
                 }
 
+                const { nickname: discordNickname, fullNickname, wasTruncated } = result;
+
                 let nicknameChanged = true;
+                let nicknameErrorReason = '';
                 try {
-                    await interaction.member.setNickname(finalNickname);
+                    await interaction.member.setNickname(discordNickname);
                 } catch (error) {
-                    console.error(`⚠️ ไม่สามารถเปลี่ยนชื่อให้ยูสเซอร์ได้เนื่องจากสิทธิ์ของบอทไม่เพียงพอ: ${interaction.user.tag}`);
+                    nicknameErrorReason = error.message.toLowerCase();
+                    console.error(`⚠️ ไม่สามารถเปลี่ยนชื่อให้ ${interaction.user.tag}: ${error.message}`);
                     nicknameChanged = false;
                 }
 
                 // 4. ส่งประวัติข้อมูลทั้งหมด (รวมถึงเบอร์โทรและอายุ) ไปที่ห้องเก็บ Log
                 const logChannel = interaction.guild.channels.cache.get(sheetConfig.getLogChannelId());
                 if (logChannel) {
+                    let nicknameStatusText = '';
+                    if (nicknameChanged) {
+                        const truncateSuffix = wasTruncated ? ' (ชื่อถูกย่อให้สั้นลง)' : '';
+                        nicknameStatusText = `✅ สำเร็จ${truncateSuffix}`;
+                    } else if (nicknameErrorReason.includes('permission') || nicknameErrorReason.includes('missing permissions')) {
+                        nicknameStatusText = '❌ ล้มเหลว (สิทธิ์บอทน้อยกว่ายศคุณ หรือ Bot ไม่มีสิทธิ์เปลี่ยนชื่อ)';
+                    } else if (nicknameErrorReason.includes('length') || nicknameErrorReason.includes('characters')) {
+                        nicknameStatusText = '❌ ล้มเหลว (ชื่อยาวเกิน 32 ตัว — Discord ปฏิเสธชื่อ)';
+                    } else if (nicknameErrorReason.includes('request entity too large')) {
+                        nicknameStatusText = '❌ ล้มเหลว (ชื่อยาวเกิน 32 ตัว — Discord ปฏิเสธชื่อ)';
+                    } else if (nicknameErrorReason.includes('invalid form body') || nicknameErrorReason.includes('invalid')) {
+                        nicknameStatusText = '❌ ล้มเหลว (ชื่อไม่ถูกต้อง — Discord ปฏิเสธรูปแบบชื่อ)';
+                    } else {
+                        nicknameStatusText = `❌ ล้มเหลว (${nicknameErrorReason})`;
+                    }
+
                     const logEmbed = new EmbedBuilder()
                         .setColor('#a0c400')
                         .setTitle('📝 มีการลงทะเบียนใหม่ผ่านระบบสำเร็จ')
@@ -184,18 +204,23 @@ module.exports = async (client) => {
                         .addFields(
                             { name: '🆔 Discord ID', value: `\`${userId}\``, inline: true },
                             { name: '📛 ชื่อ IC', value: `${icName}`, inline: true },
-                            { name: '⚙️ ชื่อในระบบ', value: `\`${finalNickname}\``, inline: false },
+                            { name: '⚙️ ชื่อในชีต', value: `\`${fullNickname}\``, inline: false },
+                            { name: '🔄 ชื่อ Discord', value: `\`${discordNickname}\``, inline: false },
                             { name: '📞 เบอร์โทร IC', value: `${icPhone}`, inline: true },
                             { name: '🎂 อายุ OOC', value: `${oocAge} ปี`, inline: true },
                             { name: '🏷️ ตำแหน่ง', value: `นักเรียนตำรวจ`, inline: true },
-                            { name: '📱 สถานะการเปลี่ยนชื่อดิส', value: nicknameChanged ? '✅ สำเร็จ' : '❌ ล้มเหลว (สิทธิ์บอทน้อยกว่ายศคุณ)', inline: true }
+                            { name: '📱 สถานะการเปลี่ยนชื่อดิส', value: nicknameStatusText, inline: true }
                         )
                         .setTimestamp();
 
-                    await logChannel.send({ embeds: [logEmbed] });
+                    await logChannel.send({ content: `<@${userId}>`, embeds: [logEmbed] });
                 }
 
-                let successMessage = `✅ ลงทะเบียนเรียบร้อยแล้ว!\n📝 ชื่อใหม่ของคุณคือ: **${finalNickname}**\n📊 ระบบทำการบันทึกข้อมูลและตั้งค่าให้คุณเป็น **นักเรียนตำรวจ** เรียบร้อยแล้วครับ`;
+                let successMessage = `✅ ลงทะเบียนเรียบร้อยแล้ว!\n📝 **ชื่อในชีต:** ${fullNickname}\n🔄 **ชื่อ Discord:** ${discordNickname}\n📊 ระบบทำการบันทึกข้อมูลและตั้งค่าให้คุณเป็น **นักเรียนตำรวจ** เรียบร้อยแล้วครับ`;
+
+                if (wasTruncated) {
+                    successMessage += `\n⚠️ *(ชื่อ IC ของคุณยาวเกินไป Discord จึงย่อชื่อให้สั้นลง)*`;
+                }
                 if (!nicknameChanged) {
                     successMessage += `\n⚠️ *(หมายเหตุ: บอทไม่มีสิทธิ์เปลี่ยนชื่อเล่นให้คุณ โปรดเปลี่ยนชื่อเล่นเองให้ตรงกับระบบนะครับ)*`;
                 }
