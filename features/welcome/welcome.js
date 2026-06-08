@@ -213,7 +213,7 @@ module.exports = async (client) => {
                         .setTimestamp();
 
                     await logChannel.send({ content: `<@${userId}>`, embeds: [logEmbed] });
-                    await logChannel.send(`📋 คัดลอกไปวางใน Fivem ใน ⚙️ ก่อนเข้าประเทศ\n\n> \`${discordNickname}\``);
+                    await logChannel.send(`📋 คัดลอกไปวางใน Fivem ใน ⚙️ ก่อนเข้าประเทศ\n\n\`\`\`${discordNickname}\`\`\``);
                 }
 
                 let successMessage = `✅ ลงทะเบียนเรียบร้อยแล้ว!\n📝 **ชื่อในชีต:** ${fullNickname}\n🔄 **ชื่อ Discord:** ${discordNickname}\n📊 ระบบทำการบันทึกข้อมูลและตั้งค่าให้คุณเป็น **นักเรียนตำรวจ** เรียบร้อยแล้วครับ`;
