@@ -198,6 +198,7 @@ module.exports = async (client) => {
 
                 // ✅ แก้ไข Embed ใน Log channel
                 let currentEmbed = EmbedBuilder.from(embedMsg.embeds[0]);
+                let discordNicknameForFivem = '';
                 if (newName) {
                     // อัปเดตชื่อ IC field (index 1)
                     currentEmbed = currentEmbed.spliceFields(1, 1, { name: '📛 ชื่อ IC', value: `${newName}`, inline: true });
@@ -223,6 +224,7 @@ module.exports = async (client) => {
                                 displayName = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
                             }
                         }
+                        discordNicknameForFivem = displayName;
                         // อัปเดตชื่อในระบบ field (index 2) — ใช้ชื่อที่ตัดแล้ว เหมือน welcome
                         currentEmbed = currentEmbed.spliceFields(2, 1, { name: '⚙️ ชื่อในระบบ', value: `\`${displayName}\``, inline: false });
                     }
@@ -236,6 +238,11 @@ module.exports = async (client) => {
                     changedFields.push(`อายุ → **${newAge}**`);
                 }
                 await embedMsg.edit({ embeds: [currentEmbed] });
+
+                // ✅ ถ้ามีการเปลี่ยนชื่อ → ส่งข้อความแจ้ง Fivem (เหมือน welcome)
+                if (newName && discordNicknameForFivem) {
+                    await logChannel.send(`- คัดลอกไปวางที่ Fivem ใน ⚙️Setting > Player Name ก่อนเข้าประเทศ\n\`\`\`${discordNicknameForFivem}\`\`\``);
+                }
 
                 // ✅ สรุปผลลัพธ์
                 if (changedFields.length === 0) {
