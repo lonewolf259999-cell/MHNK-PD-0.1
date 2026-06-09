@@ -72,16 +72,22 @@ function icNameFromD(cell) {
     return normalizeName(cell);
 }
 
-function rowNameMatches(logName, dCell) {
+/** Forward match: เอา logName ไปหาใน dCell */
+function matchForward(logName, dCell) {
+    const log = normalizeName(logName);
+    if (!log || !dCell) return false;
+    const full = normalizeName(dCell);
+    const ic = icNameFromD(dCell);
+    return full.includes(log) || ic.includes(log);
+}
+
+/** Backward match: ถ้า log ยาวกว่าชื่อในชีต (โดนตัด) → ตัด log ให้เท่าแล้วเทียบ */
+function matchBackward(logName, dCell) {
     const log = normalizeName(logName);
     if (!log || !dCell) return false;
     const full = normalizeName(dCell);
     const ic = icNameFromD(dCell);
 
-    // Forward match (original): เอา logName ไปหาใน dCell
-    if (full.includes(log) || ic.includes(log)) return true;
-
-    // Backward match: ถ้า log ยาวกว่าชื่อในชีต (โดนตัด) → ตัด log ให้เท่าแล้วเทียบ
     if (ic.length > 0 && ic.length < log.length) {
         const partialLog = log.slice(0, ic.length);
         if (partialLog === ic) return true;
@@ -90,8 +96,11 @@ function rowNameMatches(logName, dCell) {
         const partialLog = log.slice(0, full.length);
         if (partialLog === full) return true;
     }
-
     return false;
+}
+
+function rowNameMatches(logName, dCell) {
+    return matchForward(logName, dCell) || matchBackward(logName, dCell);
 }
 
 /**
@@ -103,15 +112,46 @@ function findRowFromCache(name) {
     const rows = sheetCache.rows;
     if (!rows) return { row: NEW_ROW_MIN, isNew: true };
 
-    // 1) เจอชื่อใน D แล้ว (แถว 3 ขึ้นไป รวมโซน 300+)
+    // Pass 1: Forward match เท่านั้น (exact + substring) — priority สูงสุด
+    // ป้องกันไม่ให้ backward match แถวผิดที่มีชื่อคล้ายกัน
     for (let idx = 2; idx < rows.length; idx++) {
         const dCell = rows[idx]?.[0];
-        if (dCell && rowNameMatches(name, dCell)) {
+        if (dCell && matchForward(name, dCell)) {
             return { row: idx + 1, isNew: false };
         }
     }
 
-    // 2) ไม่เจอ → หาแถวว่าง D ตั้งแต่ 300
+    // Pass 2: Backward match (fallback สำหรับชื่อที่ถูกตัด)
+    // เลือกแถวที่ match prefix ยาวที่สุด เพื่อป้องกัน match แถวที่มีชื่อสั้นกว่าผิด
+    let bestRow = null;
+    let bestLen = 0;
+    const normalizedName = normalizeName(name);
+    for (let idx = 2; idx < rows.length; idx++) {
+        const dCell = rows[idx]?.[0];
+        if (!dCell) continue;
+        const full = normalizeName(dCell);
+        const ic = icNameFromD(dCell);
+
+        // เช็ค ic part ก่อน (ชื่อหลัง ] )
+        if (ic.length > 0 && ic.length < normalizedName.length) {
+            const partial = normalizedName.slice(0, ic.length);
+            if (partial === ic && ic.length > bestLen) {
+                bestRow = idx + 1;
+                bestLen = ic.length;
+            }
+        }
+        // เช็ค full cell ถ้ายาวกว่า ic (อาจมี prefix ที่ยาวผิดปกติ)
+        if (full.length > 0 && full.length < normalizedName.length && full.length > bestLen) {
+            const partial = normalizedName.slice(0, full.length);
+            if (partial === full) {
+                bestRow = idx + 1;
+                bestLen = full.length;
+            }
+        }
+    }
+    if (bestRow) return { row: bestRow, isNew: false };
+
+    // ไม่เจอเลย → หาแถวว่าง D ตั้งแต่ 300
     for (let row = NEW_ROW_MIN; row <= rows.length; row++) {
         const dCell = rows[row - 1]?.[0];
         if (!dCell || !String(dCell).trim()) {
@@ -119,7 +159,7 @@ function findRowFromCache(name) {
         }
     }
 
-    // 3) โซน 300+ เต็ม → แถวถัดไป
+    // โซน 300+ เต็ม → แถวถัดไป
     return { row: Math.max(rows.length + 1, NEW_ROW_MIN), isNew: true };
 }
 
