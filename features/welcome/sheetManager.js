@@ -273,8 +273,59 @@ async function isAlreadyRegistered(userId) {
 }
 
 
+/**
+ * ✅ ค้นหาแถวของสมาชิกจาก Discord ID (คอลัมน์ E)
+ * @param {string} userId
+ * @returns {{ row: number, codeNumber: string, currentName: string } | null}
+ */
+async function findMemberByDiscordId(userId) {
+    try {
+        const { spreadsheetId, sheetName } = getRegistry();
+        const response = await safeGetValues(spreadsheetId, `${sheetName}!C:E`, {
+            operation: 'sheetManager-findMember'
+        });
+        const rows = response.data.values || [];
+        for (let i = 2; i < rows.length; i++) {
+            const colC = rows[i]?.[0] || '';
+            const colD = rows[i]?.[1] || '';
+            const colE = rows[i]?.[2] || '';
+            if (colE && colE.trim().includes(userId)) {
+                return {
+                    row: i + 1,
+                    codeNumber: colC.trim(),
+                    currentName: colD.trim()
+                };
+            }
+        }
+        return null;
+    } catch (err) {
+        console.error("❌ [SHEET ERROR] findMemberByDiscordId:", err);
+        return null;
+    }
+}
+
+/**
+ * ✅ อัปเดตชื่อใน Sheet คอลัมน์ D
+ * @param {number} row
+ * @param {string} newFullName
+ */
+async function updateMemberNameInSheet(row, newFullName) {
+    try {
+        const { spreadsheetId, sheetName } = getRegistry();
+        await safeUpdateValues(spreadsheetId, `${sheetName}!D${row}`, [[newFullName]], {
+            operation: 'sheetManager-updateName'
+        });
+        console.log(`✅ [SHEET] อัปเดตชื่อแถว ${row} → ${newFullName}`);
+    } catch (err) {
+        console.error("❌ [SHEET ERROR] updateMemberNameInSheet:", err);
+        throw err;
+    }
+}
+
 module.exports = {
     registerMemberToSheet,
     moveMemberToOutSheet,
-    isAlreadyRegistered
+    isAlreadyRegistered,
+    findMemberByDiscordId,
+    updateMemberNameInSheet
 };

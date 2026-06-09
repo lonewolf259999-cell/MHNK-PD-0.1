@@ -1,5 +1,5 @@
 // =================================================================
-// ⚙️ config/configPanel.js — แผงควบคุม 6 ปุ่ม + Modal ตั้งค่า + /editphone
+// ⚙️ config/configPanel.js — แผงควบคุม 6 ปุ่ม + Modal ตั้งค่า + /editpd
 // =================================================================
 
 const { REST, Routes, Events, SlashCommandBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder } = require('discord.js');
@@ -55,8 +55,8 @@ module.exports = async (client) => {
                     .setName('recount')
                     .setDescription('⚙️ แผงควบคุมตั้งค่าและนับยอดเคส'),
                 new SlashCommandBuilder()
-                    .setName('editphone')
-                    .setDescription('📞 แก้ไขเบอร์โทร IC ของคุณ')
+                    .setName('editpd')
+                    .setDescription('📝 แก้ไขโปรไฟล์ตำรวจ (ชื่อ IC, เบอร์โทร, อายุ)')
             ].map(cmd => cmd.toJSON());
 
             const rest = new REST({ version: '10' }).setToken(client.token);
@@ -70,33 +70,57 @@ module.exports = async (client) => {
 
     client.on('interactionCreate', async (interaction) => {
         // =================================================================
-        // ✅ /editphone — ทุกคนใช้ได้ ไม่ต้องเช็ค admin
+        // ✅ /editpd — ทุกคนใช้ได้ ไม่ต้องเช็ค admin
+        //    แก้ไขชื่อ IC, เบอร์โทร IC, อายุ OOC
+        //    อัปเดต Sheet (ชื่อ) + Embed (ชื่อ,เบอร์,อายุ) + Discord nickname
         // =================================================================
-        if (interaction.isChatInputCommand() && interaction.commandName === 'editphone') {
+        if (interaction.isChatInputCommand() && interaction.commandName === 'editpd') {
             const modal = new ModalBuilder()
-                .setCustomId('modal_edit_phone')
-                .setTitle('📞 แก้ไขเบอร์โทร IC')
+                .setCustomId('modal_edit_pd')
+                .setTitle('📝 แก้ไขโปรไฟล์ตำรวจ')
                 .addComponents(
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
-                            .setCustomId('input_new_phone')
+                            .setCustomId('input_ic_name')
+                            .setLabel('ชื่อ IC ใหม่')
+                            .setStyle(TextInputStyle.Short)
+                            .setPlaceholder('กรุณากรอกชื่อ IC ใหม่ (ถ้าไม่เปลี่ยนปล่อยว่าง)')
+                            .setRequired(false)
+                            .setMaxLength(100)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('input_ic_phone')
                             .setLabel('เบอร์โทร IC ใหม่')
                             .setStyle(TextInputStyle.Short)
-                            .setPlaceholder('กรุณากรอกเบอร์โทรใหม่')
-                            .setRequired(true)
+                            .setPlaceholder('กรุณากรอกเบอร์โทรใหม่ (ถ้าไม่เปลี่ยนปล่อยว่าง)')
+                            .setRequired(false)
+                            .setMaxLength(20)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('input_ooc_age')
+                            .setLabel('อายุ OOC ใหม่')
+                            .setStyle(TextInputStyle.Short)
+                            .setPlaceholder('กรุณากรอกอายุใหม่ (ถ้าไม่เปลี่ยนปล่อยว่าง)')
+                            .setRequired(false)
+                            .setMaxLength(3)
                     )
                 );
             return await interaction.showModal(modal);
         }
 
         // =================================================================
-        // ✅ modal_edit_phone submit — ทุกคนใช้ได้
+        // ✅ modal_edit_pd submit — ทุกคนใช้ได้
         // =================================================================
-        if (interaction.isModalSubmit() && interaction.customId === 'modal_edit_phone') {
+        if (interaction.isModalSubmit() && interaction.customId === 'modal_edit_pd') {
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
             try {
-                const newPhone = interaction.fields.getTextInputValue('input_new_phone').trim();
+                const newName = interaction.fields.getTextInputValue('input_ic_name').trim();
+                const newPhone = interaction.fields.getTextInputValue('input_ic_phone').trim();
+                const newAge = interaction.fields.getTextInputValue('input_ooc_age').trim();
                 const userId = interaction.user.id;
+                const changedFields = [];
 
                 // หา Log channel ID
                 const logChannelId = sheetConfig.getLogChannelId();
@@ -110,7 +134,7 @@ module.exports = async (client) => {
                 }
 
                 // ค้นหา Embed ที่มี Discord ID ตรงกับ userId
-                let found = false;
+                let embedMsg = null;
                 const messages = await logChannel.messages.fetch({ limit: 100 });
                 for (const msg of messages.values()) {
                     if (msg.embeds.length === 0) continue;
@@ -118,29 +142,115 @@ module.exports = async (client) => {
                     const discordIdField = embed.fields?.find(f => f.name.includes('Discord ID'));
                     if (!discordIdField) continue;
                     const idInEmbed = discordIdField.value.replace(/`/g, '').trim();
-                    if (idInEmbed !== userId) continue;
-
-                    // เจอแล้ว — แก้ไข Embed
-                    const newEmbed = EmbedBuilder.from(embed)
-                        .spliceFields(3, 1, { name: '📞 เบอร์โทร IC', value: `${newPhone}`, inline: true });
-                    await msg.edit({ embeds: [newEmbed] });
-
-                    found = true;
-                    break;
+                    if (idInEmbed === userId) {
+                        embedMsg = msg;
+                        break;
+                    }
                 }
 
-                if (!found) {
+                if (!embedMsg) {
                     return await interaction.editReply({
                         content: '❌ ไม่พบประวัติการลงทะเบียนของคุณใน Log channel'
                     });
                 }
 
-                await interaction.editReply({
-                    content: `✅ อัปเดตเบอร์โทรเป็น **${newPhone}** เรียบร้อยแล้ว!`
-                });
+                // ✅ หาแถวใน Sheet และอัปเดตชื่อ
+                const { findMemberByDiscordId, updateMemberNameInSheet } = require('../features/welcome/sheetManager');
+
+                // ✅ ถ้ามีการเปลี่ยนชื่อ IC
+                if (newName) {
+                    const memberInfo = await findMemberByDiscordId(userId);
+                    if (memberInfo) {
+                        const fullNewName = `${memberInfo.codeNumber} [MHNK-PD] ${newName}`;
+
+                        // อัปเดต Sheet คอลัมน์ D
+                        await updateMemberNameInSheet(memberInfo.row, fullNewName);
+
+                        // อัปเดต Discord nickname
+                        const MAX_DISCORD_NICKNAME = 32;
+                        let discordNickname = fullNewName;
+                        if (fullNewName.length > MAX_DISCORD_NICKNAME) {
+                            const prefixMatch = fullNewName.match(/^(.+? \[MHNK-PD\] )/);
+                            if (prefixMatch) {
+                                const prefix = prefixMatch[1];
+                                const icPart = fullNewName.slice(prefix.length);
+                                const availableForIC = MAX_DISCORD_NICKNAME - prefix.length;
+                                if (availableForIC > 0) {
+                                    discordNickname = prefix + icPart.slice(0, availableForIC);
+                                } else {
+                                    discordNickname = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
+                                }
+                            } else {
+                                discordNickname = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
+                            }
+                        }
+                        try {
+                            await interaction.member.setNickname(discordNickname);
+                        } catch (err) {
+                            console.warn(`⚠️ [editpd] ไม่สามารถเปลี่ยน nickname: ${err.message}`);
+                        }
+
+                        changedFields.push(`ชื่อ IC → **${newName}**`);
+                    } else {
+                        console.warn(`⚠️ [editpd] ไม่พบข้อมูล ${userId} ใน Sheet`);
+                    }
+                }
+
+                // ✅ แก้ไข Embed ใน Log channel
+                let currentEmbed = EmbedBuilder.from(embedMsg.embeds[0]);
+                if (newName) {
+                    // อัปเดตชื่อ IC field (index 1)
+                    currentEmbed = currentEmbed.spliceFields(1, 1, { name: '📛 ชื่อ IC', value: `${newName}`, inline: true });
+
+                    // คำนวณชื่อในระบบแบบเดียวกับ welcome (ตัดให้เหลือ 32 ตัว)
+                    const memberInfo = await findMemberByDiscordId(userId).catch(() => null);
+                    if (memberInfo) {
+                        const fullNewName = `${memberInfo.codeNumber} [MHNK-PD] ${newName}`;
+                        const MAX_DISCORD_NICKNAME = 32;
+                        let displayName = fullNewName;
+                        if (fullNewName.length > MAX_DISCORD_NICKNAME) {
+                            const prefixMatch = fullNewName.match(/^(.+? \[MHNK-PD\] )/);
+                            if (prefixMatch) {
+                                const prefix = prefixMatch[1];
+                                const icPart = fullNewName.slice(prefix.length);
+                                const availableForIC = MAX_DISCORD_NICKNAME - prefix.length;
+                                if (availableForIC > 0) {
+                                    displayName = prefix + icPart.slice(0, availableForIC);
+                                } else {
+                                    displayName = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
+                                }
+                            } else {
+                                displayName = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
+                            }
+                        }
+                        // อัปเดตชื่อในระบบ field (index 2) — ใช้ชื่อที่ตัดแล้ว เหมือน welcome
+                        currentEmbed = currentEmbed.spliceFields(2, 1, { name: '⚙️ ชื่อในระบบ', value: `\`${displayName}\``, inline: false });
+                    }
+                }
+                if (newPhone) {
+                    currentEmbed = currentEmbed.spliceFields(3, 1, { name: '📞 เบอร์โทร IC', value: `${newPhone}`, inline: true });
+                    changedFields.push(`เบอร์โทร → **${newPhone}**`);
+                }
+                if (newAge) {
+                    currentEmbed = currentEmbed.spliceFields(4, 1, { name: '🎂 อายุ OOC', value: `${newAge} ปี`, inline: true });
+                    changedFields.push(`อายุ → **${newAge}**`);
+                }
+                await embedMsg.edit({ embeds: [currentEmbed] });
+
+                // ✅ สรุปผลลัพธ์
+                if (changedFields.length === 0) {
+                    return await interaction.editReply({ content: '⚠️ ไม่มีการเปลี่ยนแปลงใดๆ (คุณไม่ได้กรอกข้อมูลใหม่)' });
+                }
+
+                let replyMessage = '✅ อัปเดตข้อมูลสำเร็จ!\n' + changedFields.join('\n');
+                if (newName) {
+                    replyMessage += '\n🔄 Discord nickname ถูกเปลี่ยนตามชื่อ IC ใหม่แล้ว';
+                }
+
+                await interaction.editReply({ content: replyMessage });
 
             } catch (err) {
-                console.error('❌ [editphone] error:', err);
+                console.error('❌ [editpd] error:', err);
                 await interaction.editReply({
                     content: '❌ เกิดข้อผิดพลาด โปรดลองอีกครั้งหรือแจ้งเจ้าหน้าที่'
                 });
