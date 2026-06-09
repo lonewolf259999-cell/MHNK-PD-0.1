@@ -271,10 +271,6 @@ async function runManualRecount(client, interaction) {
     });
 }
 
-// ✅ ส่งออก function หลักให้ featureHandler เรียก
-function load() {
-    // CountCase ไม่ต้องลง event listener ในตัวเอง
-}
-
-module.exports = load;
+// CountCase ไม่ต้องลง event listener ในตัวเอง
+module.exports = () => {};
 module.exports.runManualRecount = runManualRecount;

@@ -52,15 +52,14 @@ async function resolveTags(guild, finalContent) {
 
     const foundTags = [];
     for (const code of targetCodes) {
+        const prefixPattern = `${code} [MHNK-PD]`;
         let member = guild.members.cache.find(m =>
-            (m.nickname || "").startsWith(`${code} `) ||
-            (m.nickname || "").startsWith(`${code}[`)
+            (m.nickname || "").startsWith(prefixPattern)
         );
         if (!member) {
             const fetched = await guild.members.fetch({ query: code, limit: 10 });
             member = fetched.find(m =>
-                (m.nickname || "").startsWith(`${code} `) ||
-                (m.nickname || "").startsWith(`${code}[`)
+                (m.nickname || "").startsWith(prefixPattern)
             );
         }
         if (member) foundTags.push(`<@${member.user.id}>`);

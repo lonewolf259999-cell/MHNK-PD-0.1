@@ -5,11 +5,12 @@
 const { safeGetValues, safeUpdateValues } = require('../../../utils/apiSafe');
 
 function findUserRow(rows, person) {
+    // ใช้ ID column (index 0) ก่อน ถ้าไม่เจอค่อยใช้ username
     return rows.findIndex(
         (r, idx) =>
             idx >= 1 &&
-            r[1] &&
-            r[1] === person.username
+            r[0] &&
+            (r[0] === person.nickname || r[0] === person.username || r[1] === person.username)
     );
 }
 
@@ -39,7 +40,7 @@ async function processSheetBatch(list, msg, configData, isDel = false) {
             let rIdx = findUserRow(rows, p);
 
             if (rIdx !== -1) {
-                let oldVal = parseInt(rows[rIdx][chInfo.idx] || '0');
+                let oldVal = parseInt(rows[rIdx][chInfo.idx] || '0') || 0;
                 let newVal = Math.max(0, oldVal + amt);
                 rows[rIdx][chInfo.idx] = newVal.toString();
                 console.log(`[${isDel ? '-' : '+'}] ${p.nickname} | ${chInfo.name}: ${oldVal} → ${newVal}`);

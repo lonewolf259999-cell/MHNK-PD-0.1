@@ -237,10 +237,6 @@ function getProctorChannelId() {
     return views.proctorChannelId || rawData.PROCTOR_CHANNEL_ID || DEFAULTS.PROCTOR_CHANNEL_ID;
 }
 
-async function writeCountConfigRows(configValues) {
-    return writeConfigKeys(configValues);
-}
-
 module.exports = {
     CONFIG_SHEET_ID,
     CONFIG_SHEET_NAME,
@@ -256,6 +252,5 @@ module.exports = {
     getLogCaseChannelId,
     getBypdSendChannelId,
     getProctorChannelId,
-    writeConfigKeys,
-    writeCountConfigRows
+    writeConfigKeys
 };

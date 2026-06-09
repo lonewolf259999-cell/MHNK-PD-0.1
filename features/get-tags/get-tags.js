@@ -2,7 +2,7 @@
 // 🆔 features/get-tags/get-tags.js — Event Listener เท่านั้น (ไม่มี logic ซ้ำ)
 // =================================================================
 
-const { processAndSend } = require('./processAndSend');
+const { processAndSend, extractContent } = require('./processAndSend');
 const sheetConfig = require('../../utils/sheetConfig');
 
 module.exports = async (client) => {
@@ -16,26 +16,11 @@ module.exports = async (client) => {
         const hasEmbed = message.embeds.length > 0;
         if (!hasContent && !hasEmbed) return;
 
-        // ดึงข้อความเพื่อเช็คคำว่า BYPD
-        let finalContent = hasContent ? message.content.trim() : "";
-        if (!finalContent && hasEmbed) {
-            const embedTexts = [];
-            for (const embed of message.embeds) {
-                if (embed.title) embedTexts.push(embed.title);
-                if (embed.description) embedTexts.push(embed.description);
-                if (embed.fields) {
-                    for (const field of embed.fields) {
-                        if (field.name) embedTexts.push(field.name);
-                        if (field.value) embedTexts.push(field.value);
-                    }
-                }
-                if (embed.footer?.text) embedTexts.push(embed.footer.text);
-            }
-            finalContent = embedTexts.join('\n');
-        }
+        // ดึงข้อความผ่าน extractContent ที่ใช้ร่วมกัน
+        const finalContent = extractContent(message);
 
         // เช็คว่าเป็นข้อความ BYPD
-        if (finalContent.toUpperCase().includes('BYPD')) {
+        if (finalContent && finalContent.toUpperCase().includes('BYPD')) {
             await processAndSend(message);
         }
     });

@@ -154,6 +154,19 @@ module.exports = async (client) => {
                     });
                 }
 
+                // ✅ ค้นหาข้อความ Fivem จาก messages ที่ fetch มาแล้ว
+                let fivemMsg = null;
+                for (const msg of messages.values()) {
+                    if (msg.author.bot && msg.content && msg.content.includes('คัดลอกไปวางที่ Fivem')) {
+                        fivemMsg = msg;
+                        console.log(`✅ [editpd] เจอ Fivem message (ID: ${msg.id})`);
+                        break;
+                    }
+                }
+                if (!fivemMsg) {
+                    console.log(`⚠️ [editpd] ไม่พบ Fivem message ใน 100 ข้อความล่าสุด — จะส่งใหม่แทน`);
+                }
+
                 // ✅ หาแถวใน Sheet และอัปเดตชื่อ
                 const { findMemberByDiscordId, updateMemberNameInSheet } = require('../features/welcome/sheetManager');
 
@@ -239,9 +252,14 @@ module.exports = async (client) => {
                 }
                 await embedMsg.edit({ embeds: [currentEmbed] });
 
-                // ✅ ถ้ามีการเปลี่ยนชื่อ → ส่งข้อความแจ้ง Fivem (เหมือน welcome)
+                // ✅ ถ้ามีการเปลี่ยนชื่อ → แก้ไขข้อความ Fivem แทนการส่งเพิ่ม
                 if (newName && discordNicknameForFivem) {
-                    await logChannel.send(`- คัดลอกไปวางที่ Fivem ใน ⚙️Setting > Player Name ก่อนเข้าประเทศ\n\`\`\`${discordNicknameForFivem}\`\`\``);
+                    const fivemContent = `- คัดลอกไปวางที่ Fivem ใน ⚙️Setting > Player Name ก่อนเข้าประเทศ\n\`\`\`${discordNicknameForFivem}\`\`\``;
+                    if (fivemMsg) {
+                        await fivemMsg.edit(fivemContent);
+                    } else {
+                        await logChannel.send(fivemContent);
+                    }
                 }
 
                 // ✅ สรุปผลลัพธ์

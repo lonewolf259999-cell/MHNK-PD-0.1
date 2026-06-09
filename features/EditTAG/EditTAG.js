@@ -88,7 +88,7 @@ module.exports = async (client) => {
                 let latestMsg = null;
 
                 for (const [id, msg] of messages) {
-                const mentionIds = Array.from(new Set(msg.content.match(/\d{17,19}/g) || []));
+                const mentionIds = Array.from(new Set((msg.content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])));
                     // เช็คว่า userID เป็นแท็กแรก (เจ้าของคดี) และมีแท็กคน
                     if (mentionIds.length > 0 && mentionIds[0] === i.user.id) {
                         latestMsg = msg;
@@ -100,7 +100,7 @@ module.exports = async (client) => {
                     return i.editReply('❌ ไม่พบคดีของคุณใน 5 โพสล่าสุด');
                 }
 
-                const mentionIds = Array.from(new Set(latestMsg.content.match(/\d{17,19}/g) || []));
+                const mentionIds = Array.from(new Set((latestMsg.content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])));
 
                 const embed = new EmbedBuilder()
                     .setTitle('📋 จัดการแท็กคน')
@@ -134,7 +134,7 @@ module.exports = async (client) => {
                 const msg = await fetchMessageSafe(targetChannel, msgId);
                 if (!msg) return i.editReply({ content: '❌ ไม่พบข้อความนี้', components: [] });
 
-                const mentionIds = Array.from(new Set(msg.content.match(/\d{17,19}/g) || []));
+                const mentionIds = Array.from(new Set((msg.content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])));
                 if (mentionIds.length === 0) {
                     return i.editReply({ content: '❌ ไม่พบแท็กคนในข้อความนี้', components: [] });
                 }
@@ -218,7 +218,7 @@ module.exports = async (client) => {
                 const msg = await fetchMessageSafe(targetChannel, msgId);
                 if (!msg) return i.editReply({ content: '❌ ข้อความนี้ถูกลบไปแล้ว', components: [] });
 
-                const ids = Array.from(new Set(msg.content.match(/\d{17,19}/g) || []));
+                const ids = Array.from(new Set((msg.content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])));
                 const options = [];
                 for (const id of ids.slice(1)) {
                     const member = await i.guild.members.fetch(id).catch(() => null);
