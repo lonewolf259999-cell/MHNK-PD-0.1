@@ -77,7 +77,21 @@ function rowNameMatches(logName, dCell) {
     if (!log || !dCell) return false;
     const full = normalizeName(dCell);
     const ic = icNameFromD(dCell);
-    return full.includes(log) || ic.includes(log) || full === log || ic === log;
+
+    // Forward match (original): เอา logName ไปหาใน dCell
+    if (full.includes(log) || ic.includes(log)) return true;
+
+    // Backward match: ถ้า log ยาวกว่าชื่อในชีต (โดนตัด) → ตัด log ให้เท่าแล้วเทียบ
+    if (ic.length > 0 && ic.length < log.length) {
+        const partialLog = log.slice(0, ic.length);
+        if (partialLog === ic) return true;
+    }
+    if (full.length > 0 && full.length < log.length) {
+        const partialLog = log.slice(0, full.length);
+        if (partialLog === full) return true;
+    }
+
+    return false;
 }
 
 /**
