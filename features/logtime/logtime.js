@@ -108,9 +108,25 @@ function rowNameMatches(logName, dCell) {
  * @param {string} name
  * @returns {{ row: number, isNew: boolean }}
  */
-function findRowFromCache(name) {
+function findRowFromCache(name, steamId) {
     const rows = sheetCache.rows;
     if (!rows) return { row: NEW_ROW_MIN, isNew: true };
+
+    // Pass 0: Steam ID match — priority สูงสุด
+    // ถ้า log มี steam ID → หาแถวที่ column M ตรงกัน
+    if (steamId) {
+        const steamNormalized = normalizeName(steamId);
+        for (let idx = 2; idx < rows.length; idx++) {
+            const mCell = rows[idx]?.[9]; // D:U → M = index 9 (D=0, E=1, ... M=9)
+            if (mCell && normalizeName(mCell) === steamNormalized) {
+                // เจอ steam ID ตรง → เช็ค column D ซ้ำเพื่อยืนยัน (กันกรณี steam ID ซ้ำ)
+                const dCell = rows[idx]?.[0];
+                if (dCell && (matchForward(name, dCell) || matchBackward(name, dCell))) {
+                    return { row: idx + 1, isNew: false };
+                }
+            }
+        }
+    }
 
     // Pass 1: Forward match เท่านั้น (exact + substring) — priority สูงสุด
     // ป้องกันไม่ให้ backward match แถวผิดที่มีชื่อคล้ายกัน
@@ -186,7 +202,7 @@ function getAccumulatedMinutes(col, row) {
  */
 function processSingleInRam(info) {
     const { name, inDate, inTime, date, time, id, duration } = info;
-    const { row, isNew } = findRowFromCache(name);
+    const { row, isNew } = findRowFromCache(name, id);
     const updates = [];
 
     // 1. เขียน D (ถ้าใหม่)
