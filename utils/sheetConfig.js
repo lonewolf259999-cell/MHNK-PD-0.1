@@ -234,7 +234,7 @@ function getBypdSendChannelId() {
 }
 
 function getProctorChannelId() {
-    return views.proctorChannelId || rawData.PROCTOR_CHANNEL_ID || DEFAULTS.PROCTOR_CHANNEL_ID;
+    return views.proctorChannelId;
 }
 
 module.exports = {

@@ -5,6 +5,7 @@ const {
 } = require('discord.js');
 const { handleInteractionError } = require('../../utils/interactionSafe');
 const sheetConfig = require('../../utils/sheetConfig');
+const rateLimiter = require('../../utils/rateLimiter');
 
 // =====================
 // ตั้งค่า (fallback ถ้าไม่มีใน Sheet)
@@ -57,6 +58,19 @@ module.exports = async (client) => {
             (i.isStringSelectMenu() && i.customId.startsWith('editag_addsel_')) ||
             (i.isStringSelectMenu() && i.customId.startsWith('editag_remove_'));
         if (!isEditTag) return;
+
+        // ✅ Rate limit ก่อนทุกอย่าง
+        const limitCheck = rateLimiter.check(i.user.id, 'edittag');
+        if (!limitCheck.allowed) {
+            const seconds = Math.ceil(limitCheck.resetIn / 1000);
+            if (i.isChatInputCommand() || i.isButton() || i.isStringSelectMenu()) {
+                return i.reply({
+                    content: `⏳ กรุณารอ **${seconds}** วินาที ก่อนใช้งานคำสั่งนี้อีกครั้ง`,
+                    flags: MessageFlags.Ephemeral
+                }).catch(() => {});
+            }
+            return;
+        }
 
         // เช็คสิทธิ์ทันที
         if (!checkPermission(i.user.id)) {

@@ -4,7 +4,7 @@
 
 const { SlashCommandBuilder, Events, MessageFlags } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
-const { safeGetValues, safeUpdateValues, safeClearValues, safeBatchUpdate } = require('../../utils/apiSafe');
+const { safeGetValues, safeUpdateValues, safeClearValues } = require('../../utils/apiSafe');
 const { handleInteractionError } = require('../../utils/interactionSafe');
 
 // =====================================================
@@ -106,31 +106,13 @@ async function moveToOutDC(guild, spreadsheetId, sheetName, outSheetName, rowDat
 // ✅ ลบข้อมูลจาก NamePD
 async function clearNamePDRow(spreadsheetId, sheetName, rowIndex) {
     const columnsToClear = ['B', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'M', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'];
-    const requests = columnsToClear.map(col => ({
-        updateCells: {
-            range: {
-                sheetId: null,
-                startRowIndex: rowIndex - 1,
-                endRowIndex: rowIndex,
-                startColumnIndex: colToIndex(col),
-                endColumnIndex: colToIndex(col) + 1
-            },
-            fields: 'userEnteredValue'
-        }
-    }));
-
-    try {
-        await safeBatchUpdate(spreadsheetId, requests, {
-            operation: 'thirtyday-clear-batchUpdate'
-        });
-    } catch (batchErr) {
-        // fallback: ใช้ safeClearValues ทีละคอลัมน์
-        for (const col of columnsToClear) {
-            await safeClearValues(spreadsheetId, `${sheetName}!${col}${rowIndex}`, {
-                operation: 'thirtyday-clear-fallback'
-            }).catch(() => {});
-        }
+    console.log(`🗑️ [30Day] กำลังลบข้อมูลแถวที่ ${rowIndex} หน้า ${sheetName}...`);
+    for (const col of columnsToClear) {
+        await safeClearValues(spreadsheetId, `${sheetName}!${col}${rowIndex}`, {
+            operation: 'thirtyday-clear'
+        }).catch(() => {});
     }
+    console.log(`🗑️ [30Day] ลบข้อมูลแถวที่ ${rowIndex} หน้า ${sheetName} เรียบร้อย`);
 }
 
 // ✅ ลบบทบาททั้งหมดExcept @everyone + EXEMPT_ROLES

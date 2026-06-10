@@ -8,6 +8,7 @@ const { createPanelEmbed, buildPanelComponents, sendPanelToChannel } = require('
 const { buildCountModal, buildWelcomeModal, buildBypdModal, buildRegistryModal } = require('./modals');
 const { handleRefreshConfig, handleManualCount, handleCountSave, handleWelcomeSave, handleBypdSave, handleRegistrySave, tryRefreshPanelMessage, handleResendBypd } = require('./actions');
 const sheetConfig = require('../utils/sheetConfig');
+const { truncateNickname } = require('../utils/nicknameHelper');
 const EPHEMERAL = MessageFlags.Ephemeral;
 
 const CONFIG_PANEL_IDS = new Set([
@@ -180,23 +181,7 @@ module.exports = async (client) => {
                         await updateMemberNameInSheet(memberInfo.row, fullNewName);
 
                         // อัปเดต Discord nickname
-                        const MAX_DISCORD_NICKNAME = 32;
-                        let discordNickname = fullNewName;
-                        if (fullNewName.length > MAX_DISCORD_NICKNAME) {
-                            const prefixMatch = fullNewName.match(/^(.+? \[MHNK-PD\] )/);
-                            if (prefixMatch) {
-                                const prefix = prefixMatch[1];
-                                const icPart = fullNewName.slice(prefix.length);
-                                const availableForIC = MAX_DISCORD_NICKNAME - prefix.length;
-                                if (availableForIC > 0) {
-                                    discordNickname = prefix + icPart.slice(0, availableForIC);
-                                } else {
-                                    discordNickname = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
-                                }
-                            } else {
-                                discordNickname = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
-                            }
-                        }
+                        const discordNickname = truncateNickname(fullNewName);
                         try {
                             await interaction.member.setNickname(discordNickname);
                         } catch (err) {
@@ -220,26 +205,9 @@ module.exports = async (client) => {
                     const memberInfo = await findMemberByDiscordId(userId).catch(() => null);
                     if (memberInfo) {
                         const fullNewName = `${memberInfo.codeNumber} [MHNK-PD] ${newName}`;
-                        const MAX_DISCORD_NICKNAME = 32;
-                        let displayName = fullNewName;
-                        if (fullNewName.length > MAX_DISCORD_NICKNAME) {
-                            const prefixMatch = fullNewName.match(/^(.+? \[MHNK-PD\] )/);
-                            if (prefixMatch) {
-                                const prefix = prefixMatch[1];
-                                const icPart = fullNewName.slice(prefix.length);
-                                const availableForIC = MAX_DISCORD_NICKNAME - prefix.length;
-                                if (availableForIC > 0) {
-                                    displayName = prefix + icPart.slice(0, availableForIC);
-                                } else {
-                                    displayName = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
-                                }
-                            } else {
-                                displayName = fullNewName.slice(0, MAX_DISCORD_NICKNAME);
-                            }
-                        }
-                        discordNicknameForFivem = displayName;
+                        discordNicknameForFivem = truncateNickname(fullNewName);
                         // อัปเดตชื่อในระบบ field (index 2) — ใช้ชื่อที่ตัดแล้ว เหมือน welcome
-                        currentEmbed = currentEmbed.spliceFields(2, 1, { name: '⚙️ ชื่อในระบบ', value: `\`${displayName}\``, inline: false });
+                        currentEmbed = currentEmbed.spliceFields(2, 1, { name: '⚙️ ชื่อในระบบ', value: `\`${discordNicknameForFivem}\``, inline: false });
                     }
                 }
                 if (newPhone) {

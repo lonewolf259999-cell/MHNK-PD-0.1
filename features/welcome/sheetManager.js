@@ -6,9 +6,9 @@ const sheetConfig = require('../../utils/sheetConfig');
 const {
     safeGetValues,
     safeUpdateValues,
-    safeClearValues,
-    safeBatchUpdate
+    safeClearValues
 } = require('../../utils/apiSafe');
+const { truncateNickname } = require('../../utils/nicknameHelper');
 
 function getRegistry() {
     return sheetConfig.getRegistryConfig();
@@ -80,28 +80,6 @@ async function _executeRegister(icName, userId) {
         const today = new Date();
         const formattedDate = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
 
-        // ✅ Discord จำกัด Nickname สูงสุด 32 ตัว
-        const MAX_DISCORD_NICKNAME = 32;
-        let truncatedNickname = fullNickname;
-        if (fullNickname.length > MAX_DISCORD_NICKNAME) {
-            // พยายามตัดที่ช่องว่างก่อน เพื่อไม่ให้ตัดกลางคำ
-            const overflow = fullNickname.length - MAX_DISCORD_NICKNAME;
-            // ตัดส่วนที่เป็นชื่อ IC (ส่วนต่อจาก " [MHNK-PD] ") 
-            const prefixMatch = fullNickname.match(/^(.+? \[MHNK-PD\] )/);
-            if (prefixMatch) {
-                const prefix = prefixMatch[1];
-                const icPart = fullNickname.slice(prefix.length);
-                const availableForIC = MAX_DISCORD_NICKNAME - prefix.length;
-                if (availableForIC > 0) {
-                    truncatedNickname = prefix + icPart.slice(0, availableForIC);
-                } else {
-                    truncatedNickname = fullNickname.slice(0, MAX_DISCORD_NICKNAME);
-                }
-            } else {
-                truncatedNickname = fullNickname.slice(0, MAX_DISCORD_NICKNAME);
-            }
-        }
-
         const mentionFormat = `'<@${userId}>`;
 
         // ✅ บันทึกชื่อเต็มลงชีต (ไม่ตัด) คอลัมน์ D: ชื่อ | E: Discord ID | F: ตำแหน่ง
@@ -117,7 +95,9 @@ async function _executeRegister(icName, userId) {
         console.log(`✅ [SHEET] บันทึกข้อมูลแถวที่ ${targetRowIndex} เรียบร้อย: ${fullNickname}`);
         
         // ✅ คืนค่า nickname (ชื่อที่ตัดสำหรับ Discord), fullNickname (ชื่อเต็มในชีต), wasTruncated
-        return { nickname: truncatedNickname, fullNickname, wasTruncated: fullNickname.length > MAX_DISCORD_NICKNAME };
+        const truncatedNick = truncateNickname(fullNickname);
+        const wasTruncated = fullNickname.length > 32;
+        return { nickname: truncatedNick, fullNickname, wasTruncated };
 
     } catch (error) {
         console.error('❌ [SHEET ERROR] เกิดข้อผิดพลาดในระบบ Google Sheets:', error);
@@ -175,41 +155,15 @@ async function _executeMoveMember(userId) {
             });
             console.log(`📌 [SHEET] ย้ายข้อมูลคนออก (B-M) ไปหน้า OutDC แถวที่ ${nextRowIndex} สำเร็จ`);
 
-            // ✅ แก้ไข: ใช้ batch clear แทน loop ทีละคอลัมน์
+            // ✅ clear ข้อมูลใน NamePD ด้วย safeClearValues ทีละคอลัมน์ (ใช้งานได้จริงทุกกรณี)
             const columnsToClear = ['B', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'M', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'];
-            const clearRanges = columnsToClear.map(col => ({
-                range: `${sheetName}!${col}${foundRowIndexInPD}`
-            }));
-
-            // ใช้ API request เดียวด้วย safeBatchUpdate (clear ทุกคอลัมน์พร้อมกัน)
-            const requests = columnsToClear.map(col => ({
-                updateCells: {
-                    range: {
-                        sheetId: null, // จะหา sheet id จากชื่อในขั้นตอนถัดไป
-                        startRowIndex: foundRowIndexInPD - 1,
-                        endRowIndex: foundRowIndexInPD,
-                        startColumnIndex: getColumnIndex(col),
-                        endColumnIndex: getColumnIndex(col) + 1
-                    },
-                    fields: 'userEnteredValue'
-                }
-            }));
-
-            try {
-                await safeBatchUpdate(spreadsheetId, requests, {
-                    operation: 'sheetManager-move-batchUpdate'
+            console.log(`🗑️ [SHEET] กำลังลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName}...`);
+            for (const col of columnsToClear) {
+                await safeClearValues(spreadsheetId, `${sheetName}!${col}${foundRowIndexInPD}`, {
+                    operation: 'sheetManager-move-clear'
                 });
-                console.log(`🗑️ [SHEET] ลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName} เรียบร้อย (ใช้ batchUpdate)`);
-            } catch (batchErr) {
-                // fallback: ใช้ safeClearValues ทีละคอลัมน์
-                console.warn(`⚠️ [SHEET] batchUpdate ล้มเหลว ใช้ fallback clear ทีละคอลัมน์:`, batchErr.message);
-                for (const range of clearRanges) {
-                    await safeClearValues(spreadsheetId, range.range, {
-                        operation: 'sheetManager-move-clear-fallback'
-                    });
-                }
-                console.log(`🗑️ [SHEET] ลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName} เรียบร้อย (fallback ทีละคอลัมน์)`);
             }
+            console.log(`🗑️ [SHEET] ลบข้อมูลแถวที่ ${foundRowIndexInPD} หน้า ${sheetName} เรียบร้อย`);
 
         } else {
             console.log(`⚠️ [SHEET] ไม่พบข้อมูลเก่าของ <@${userId}> ในช่วง B:M ของหน้า ${sheetName}`);

@@ -11,11 +11,23 @@ const { resendStates } = require('./resendState');
 
 // --- รีเฟรช config ---
 async function handleRefreshConfig(interaction) {
-    await sheetConfig.reloadSheetConfig();
-    await interaction.message.edit({
-        embeds: [createPanelEmbed()],
-        components: buildPanelComponents(interaction.guildId)
-    });
+    try {
+        await sheetConfig.reloadSheetConfig();
+        await interaction.message.edit({
+            embeds: [createPanelEmbed()],
+            components: buildPanelComponents(interaction.guildId)
+        });
+    } catch (err) {
+        console.error('❌ [actions] รีเฟรช config ล้มเหลว:', err);
+        try {
+            await interaction.message.edit({
+                content: '❌ โหลด config จาก Sheet ไม่สำเร็จ — กรุณาตรวจสอบการเชื่อมต่อ Google Sheet'
+            });
+        } catch (_) {
+            // ignore edit fail
+        }
+        throw err; // ส่งต่อให้ caller จัดการต่อ
+    }
 }
 
 // --- เริ่มนับข้อความเก่า ---

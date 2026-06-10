@@ -9,7 +9,6 @@ const { MessageFlags } = require('discord.js');
 const EPHEMERAL = MessageFlags.Ephemeral;
 
 let recountQueue = Promise.resolve();
-let currentAbortController = null;
 
 function addRecountQueue(task) {
     recountQueue = recountQueue.then(task).catch(console.error);
@@ -25,10 +24,6 @@ async function updateStatus(interaction, content) {
         console.error('[CountCase] updateStatus failed:', err.message);
         return false;
     }
-}
-
-function isAborted() {
-    return currentAbortController?.signal?.aborted ?? false;
 }
 
 // ✅ Phase 1: Preview Scan

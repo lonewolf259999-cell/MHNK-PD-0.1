@@ -53,7 +53,8 @@ function check(identifier, featureName = identifier) {
         return {
             allowed: false,
             remaining: 0,
-            resetIn: record.resetTime - now
+            resetIn: record.resetTime - now,
+            message: config.message
         };
     }
 
@@ -97,6 +98,12 @@ setConfig('register', {
     windowMs: 60000,
     maxRequests: 3,
     message: 'ลงทะเบียนบ่อยเกินไป กรุณารอ 1 นาที'
+});
+
+setConfig('edittag', {
+    windowMs: 10000,
+    maxRequests: 5,
+    message: 'แก้ไขแท็กบ่อยเกินไป กรุณารอ 10 วินาที'
 });
 
 module.exports = {
