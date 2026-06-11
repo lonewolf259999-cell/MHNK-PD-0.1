@@ -133,9 +133,9 @@ module.exports = async (client) => {
 
             // =============================================================
             // 2. ปุ่ม ➕ → เปิด Modal ให้พิมพ์ชื่อคนที่จะเพิ่ม
+            //    ⚠️ ห้าม deferUpdate() ก่อน showModal() — Discord ไม่ยอม
             // =============================================================
             if (i.isButton() && i.customId.startsWith('editag_add_')) {
-                await i.deferUpdate();
                 const parts = i.customId.split('_');
                 const msgId = parts[2];
                 const channelId = parts[3];
