@@ -197,11 +197,12 @@ async function runManualRecount(client, interaction) {
                         if (tagList.length > 0) {
                             tagList.forEach((person) => {
                                 const rowIndex = rows.findIndex((r, idx) => {
-                                    if (idx < 3 || !r[0]) return false;
+                                    // idx >= 1 = ข้ามแถว header (แถว 0) — ให้ตรงกับ CountAuto/sheetUpdater.js
+                                    if (idx < 1 || !r[0]) return false;
                                     const sName = r[0].toString().trim().toLowerCase();
                                     const dNick = (person.nickname || "").toLowerCase();
                                     const dUser = (person.username || "").toLowerCase();
-                                    return dNick === sName || dNick.includes(sName) || dUser === sName || dUser.includes(sName) || sName.includes(dUser);
+                                    return dNick === sName || dUser === sName;
                                 });
 
                                 if (rowIndex !== -1) {

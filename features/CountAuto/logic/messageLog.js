@@ -5,7 +5,7 @@
 const fs = require('fs');
 
 let lastCleanupTime = Date.now();
-const CLEANUP_INTERVAL = 2 * 60 * 60 * 1000; // 2 ชั่วโมง
+const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 ชั่วโมง (จากเดิม 2 ชม.)
 
 function shouldCleanup() {
     return Date.now() - lastCleanupTime >= CLEANUP_INTERVAL;

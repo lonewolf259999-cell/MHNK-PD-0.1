@@ -66,7 +66,10 @@ async function runResendMissed(client, interaction, abortSignal = null) {
 
             const isBypd = content.toUpperCase().includes('BYPD');
             const isProctor = proctorModule.isProctorEmbed(embed);
-            const hasCheckmark = msg.reactions.cache.some(r => r.emoji.name === '✅');
+            // Fetch ข้อมูลสดจาก Discord ก่อนเช็ค ✅
+            // (cache อาจไม่มีข้อมูล reactions ของข้อความเก่า)
+            const freshMsg = await msg.fetch().catch(() => msg);
+            const hasCheckmark = freshMsg.reactions.cache.some(r => r.emoji.name === '✅');
 
             if (isBypd && !hasCheckmark) {
                 toSendBypd.push(msg);
