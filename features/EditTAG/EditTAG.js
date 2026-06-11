@@ -1,7 +1,13 @@
+// =================================================================
+// 📝 features/EditTAG/EditTAG.js — Context Menu "Edit Tags"
+// (คลิกขวาที่ข้อความ > Apps > Edit Tags)
+// =================================================================
+
 const {
-    SlashCommandBuilder, Events,
+    ContextMenuCommandBuilder, ApplicationCommandType, Events,
     ActionRowBuilder, StringSelectMenuBuilder,
-    ButtonBuilder, ButtonStyle, MessageFlags, EmbedBuilder
+    ButtonBuilder, ButtonStyle, MessageFlags, EmbedBuilder,
+    ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 const { handleInteractionError } = require('../../utils/interactionSafe');
 const sheetConfig = require('../../utils/sheetConfig');
@@ -28,23 +34,25 @@ module.exports = async (client) => {
         return ids.includes(userId);
     };
 
-    // ลงทะเบียน Slash Command
+    // ลงทะเบียน Context Menu Command
     client.once(Events.ClientReady, async () => {
-        const command = new SlashCommandBuilder()
-            .setName('edittag')
-            .setDescription('แก้ไขแท็กคนในข้อความ')
-            .addChannelOption(opt =>
-                opt.setName('channel')
-                   .setDescription('ช่องที่มีข้อความ')
-                   .setRequired(true)
-            );
+        const contextMenu = new ContextMenuCommandBuilder()
+            .setName('Edit Tags')
+            .setType(ApplicationCommandType.Message);
         try {
             const existing = await client.application.commands.fetch();
-            const oldCmd = existing.find(c => c.name === 'edittag');
-            if (oldCmd) {
-                await oldCmd.delete();
+            // ลบ /edittag เดิมถ้ายังมี
+            const oldSlash = existing.find(c => c.name === 'edittag');
+            if (oldSlash) {
+                await oldSlash.delete();
+                console.log('✅ [EditTAG] ลบ /edittag เดิมแล้ว');
             }
-            await client.application.commands.create(command);
+            // ลงทะเบียน Context Menu (ถ้ายังไม่มี)
+            const oldCtx = existing.find(c => c.name === 'Edit Tags');
+            if (!oldCtx) {
+                await client.application.commands.create(contextMenu);
+                console.log('✅ [EditTAG] ลงทะเบียน Context Menu "Edit Tags" แล้ว');
+            }
         } catch (e) {
             console.error('❌ [EditTAG] ลงทะเบียนคำสั่งไม่สำเร็จ:', e);
         }
@@ -52,10 +60,9 @@ module.exports = async (client) => {
 
     client.on('interactionCreate', async (i) => {
         const isEditTag =
-            (i.isChatInputCommand() && i.commandName === 'edittag') ||
-            (i.isStringSelectMenu() && i.customId.startsWith('editag_selectmsg_')) ||
+            (i.isMessageContextMenuCommand() && i.commandName === 'Edit Tags') ||
             (i.isButton() && (i.customId.startsWith('editag_add_') || i.customId.startsWith('editag_rem_'))) ||
-            (i.isStringSelectMenu() && i.customId.startsWith('editag_addsel_')) ||
+            (i.isModalSubmit() && i.customId.startsWith('editag_addmodal_')) ||
             (i.isStringSelectMenu() && i.customId.startsWith('editag_remove_'));
         if (!isEditTag) return;
 
@@ -63,27 +70,59 @@ module.exports = async (client) => {
         const limitCheck = rateLimiter.check(i.user.id, 'edittag');
         if (!limitCheck.allowed) {
             const seconds = Math.ceil(limitCheck.resetIn / 1000);
-            if (i.isChatInputCommand() || i.isButton() || i.isStringSelectMenu()) {
-                return i.reply({
-                    content: `⏳ กรุณารอ **${seconds}** วินาที ก่อนใช้งานคำสั่งนี้อีกครั้ง`,
-                    flags: MessageFlags.Ephemeral
-                }).catch(() => {});
-            }
-            return;
+            return i.reply({
+                content: `⏳ กรุณารอ **${seconds}** วินาที ก่อนใช้งานคำสั่งนี้อีกครั้ง`,
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
         }
 
         // เช็คสิทธิ์ทันที
         if (!checkPermission(i.user.id)) {
-            if (i.isChatInputCommand() || i.isButton() || i.isStringSelectMenu()) {
-                return i.reply({
-                    content: '❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้',
-                    flags: MessageFlags.Ephemeral
-                }).catch(() => {});
-            }
-            return;
+            return i.reply({
+                content: '❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
         }
 
         try {
+            // =============================================================
+            // 1. CONTEXT MENU: คลิกขวาที่ข้อความ → แสดงปุ่ม ➕/➖
+            // =============================================================
+            if (i.isMessageContextMenuCommand() && i.commandName === 'Edit Tags') {
+                await i.deferReply({ flags: MessageFlags.Ephemeral });
+                const targetMsg = i.targetMessage;
+
+                // ดึง mention IDs จากข้อความ
+                const content = targetMsg.content || '';
+                const mentionIds = Array.from(new Set(
+                    (content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])
+                ));
+
+                // เช็คว่า mention แรก = เจ้าของคดี (เรา)
+                if (mentionIds.length === 0 || mentionIds[0] !== i.user.id) {
+                    return i.editReply('❌ มรึงไม่ไช้เจ้าของคดี อย่า ซี้ซั้ว แก้ดี้');
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle('📋 จัดการแท็กคน')
+                    .setDescription(`**ข้อความ:** ${content.substring(0, 100)}...\n**แท็กปัจจุบัน:** ${mentionIds.length} คน`)
+                    .setColor(0x3b82f6);
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`editag_add_${targetMsg.id}_${targetMsg.channel.id}`)
+                        .setLabel('➕ เพิ่มคน')
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId(`editag_rem_${targetMsg.id}_${targetMsg.channel.id}`)
+                        .setLabel('➖ ลบคน')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
+                return i.editReply({ embeds: [embed], components: [row] });
+            }
+
+            // Helper: fetch ข้อความ
             const fetchMessageSafe = async (channel, msgId) => {
                 try {
                     return await channel.messages.fetch(msgId);
@@ -92,92 +131,37 @@ module.exports = async (client) => {
                 }
             };
 
-            // 1. Slash Command: ดึง 5 โพสล่าสุด → กรองเฉพาะคดีของตัวเอง → เอาอันล่าสุด
-            if (i.isChatInputCommand() && i.commandName === 'edittag') {
-                await i.deferReply({ flags: MessageFlags.Ephemeral });
-                const targetChannel = i.options.getChannel('channel');
-
-                // ดึง 5 โพสล่าสุด
-                const messages = await targetChannel.messages.fetch({ limit: 5 });
-                let latestMsg = null;
-
-                for (const [id, msg] of messages) {
-                const mentionIds = Array.from(new Set((msg.content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])));
-                    // เช็คว่า userID เป็นแท็กแรก (เจ้าของคดี) และมีแท็กคน
-                    if (mentionIds.length > 0 && mentionIds[0] === i.user.id) {
-                        latestMsg = msg;
-                        break; // เจออันล่าสุดแล้ว หยุด
-                }
-                }
-
-                if (!latestMsg) {
-                    return i.editReply('❌ ไม่พบคดีของคุณใน 5 โพสล่าสุด');
-                }
-
-                const mentionIds = Array.from(new Set((latestMsg.content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])));
-
-                const embed = new EmbedBuilder()
-                    .setTitle('📋 จัดการแท็กคน')
-                    .setDescription(`**ข้อความ:** ${latestMsg.content.substring(0, 100)}...\n**แท็กปัจจุบัน:** ${mentionIds.length} คน`)
-                    .setColor(0x3b82f6);
-
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`editag_add_${latestMsg.id}_${targetChannel.id}`)
-                        .setLabel('➕ เพิ่มคน')
-                        .setStyle(ButtonStyle.Success),
-                    new ButtonBuilder()
-                        .setCustomId(`editag_rem_${latestMsg.id}_${targetChannel.id}`)
-                        .setLabel('➖ ลบคน')
-                        .setStyle(ButtonStyle.Danger)
-                );
-
-                await i.editReply({ embeds: [embed], components: [row] });
-                }
-
-            // 2. เลือกข้อความแล้ว → แสดงปุ่ม ➕ ➖
-            if (i.isStringSelectMenu() && i.customId.startsWith('editag_selectmsg_')) {
+            // =============================================================
+            // 2. ปุ่ม ➕ → เปิด Modal ให้พิมพ์ชื่อคนที่จะเพิ่ม
+            // =============================================================
+            if (i.isButton() && i.customId.startsWith('editag_add_')) {
                 await i.deferUpdate();
                 const parts = i.customId.split('_');
-                const channelId = parts[2];
-                const msgId = i.values[0];
+                const msgId = parts[2];
+                const channelId = parts[3];
 
-                const targetChannel = await client.channels.fetch(channelId).catch(() => null);
-                if (!targetChannel) return i.editReply({ content: '❌ ไม่พบช่องนี้', components: [] });
-
-                const msg = await fetchMessageSafe(targetChannel, msgId);
-                if (!msg) return i.editReply({ content: '❌ ไม่พบข้อความนี้', components: [] });
-
-                const mentionIds = Array.from(new Set((msg.content.match(/<@!?(\d+)>/g) || []).map(m => m.match(/\d+/)[0])));
-                if (mentionIds.length === 0) {
-                    return i.editReply({ content: '❌ ไม่พบแท็กคนในข้อความนี้', components: [] });
-                }
-
-                // เช็คเจ้าของ (แท็กแรก)
-                if (i.user.id !== mentionIds[0]) {
-                    return i.editReply({ content: '❌ มรึงไม่ไช้เจ้าของคดี อย่า ซี้ซั้ว แก้ดี้', components: [] });
-                }
-                const embed = new EmbedBuilder()
-                    .setTitle('📋 จัดการแท็กคน')
-                    .setDescription(`**ข้อความ:** ${msg.content.substring(0, 100)}...\n**แท็กปัจจุบัน:** ${mentionIds.length} คน`)
-                    .setColor(0x3b82f6);
-
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`editag_add_${msg.id}_${channelId}`)
-                        .setLabel('➕ เพิ่มคน')
-                        .setStyle(ButtonStyle.Success),
-                    new ButtonBuilder()
-                        .setCustomId(`editag_rem_${msg.id}_${channelId}`)
-                        .setLabel('➖ ลบคน')
-                        .setStyle(ButtonStyle.Danger)
+                const modal = new ModalBuilder()
+                    .setCustomId(`editag_addmodal_${msgId}_${channelId}`)
+                    .setTitle('➕ เพิ่มคนในคดี')
+                    .addComponents(
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId('input_members')
+                                .setLabel('ชื่อ Discord ของคนที่จะเพิ่ม')
+                                .setStyle(TextInputStyle.Paragraph)
+                                .setPlaceholder('พิมพ์ชื่อ หรือ @mention คั่นด้วย , หรือขึ้นบรรทัดใหม่')
+                                .setRequired(true)
+                                .setMaxLength(500)
+                        )
                     );
 
-                await i.editReply({ embeds: [embed], components: [row] });
-                }
+                return i.showModal(modal).catch(() => {});
+            }
 
-            // 3. กดปุ่ม เพิ่มคน
-            if (i.isButton() && i.customId.startsWith('editag_add_')) {
+            // =============================================================
+            // 3. ส่ง Modal → ค้นหา + เพิ่มคนในข้อความ
+            // =============================================================
+            if (i.isModalSubmit() && i.customId.startsWith('editag_addmodal_')) {
                 await i.deferUpdate();
                 const parts = i.customId.split('_');
                 const msgId = parts[2];
@@ -186,40 +170,82 @@ module.exports = async (client) => {
                 const targetChannel = await client.channels.fetch(channelId).catch(() => null);
                 if (!targetChannel) return i.editReply({ content: '❌ ไม่พบช่องนี้', components: [] });
 
-                // ดึงสมาชิกทั้งหมดในเซิร์ฟเวอร์เพื่อสร้าง options
+                const msg = await fetchMessageSafe(targetChannel, msgId);
+                if (!msg) return i.editReply({ content: '❌ ข้อความไม่อยู่แล้ว', components: [] });
+
+                // แยกชื่อจาก input (คั่นด้วย , หรือ newline, เอา @ ออก)
+                const rawInput = i.fields.getTextInputValue('input_members').trim();
+                const names = rawInput.split(/[\n,]+/).map(n => n.trim().replace(/^@/, '')).filter(Boolean);
+
+                if (names.length === 0) {
+                    return i.editReply({ content: '❌ ไม่พบชื่อที่ต้องการเพิ่ม', components: [] });
+                }
+
+                // ค้นหาสมาชิกจากชื่อ
                 const members = await i.guild.members.fetch();
-                const options = [];
-                for (const [id, member] of members) {
-                    if (member.user.bot) continue; // ข้ามบอท
-                    options.push({
-                        label: member.displayName,
-                        value: id
-                    });
-                }
+                const foundIds = [];
+                const notFound = [];
 
-                if (options.length === 0) {
-                    return i.editReply({ content: '❌ ไม่พบสมาชิกในเซิร์ฟเวอร์', components: [] });
-                }
+                for (const name of names) {
+                    // ถ้าเป็น ID ตรงๆ
+                    if (/^\d{17,19}$/.test(name)) {
+                        const byId = members.get(name);
+                        if (byId) {
+                            foundIds.push(byId.id);
+                            continue;
+                        }
+                    }
 
-                const rows = [];
-                for (let idx = 0; idx < options.length; idx += 25) {
-                    const chunk = options.slice(idx, idx + 25);
-                    rows.push(
-                        new ActionRowBuilder().addComponents(
-                            new StringSelectMenuBuilder()
-                                .setCustomId(`editag_addsel_${msgId}_${channelId}_${idx}`)
-                                .setPlaceholder(`เลือกคนที่จะเพิ่ม (ชุดที่ ${Math.floor(idx/25) + 1})`)
-                                .setMinValues(1)
-                                .setMaxValues(chunk.length)
-                                .addOptions(chunk)
-                        )
+                    // ค้นหาจาก username, nickname, displayName แบบตรงๆ
+                    let member = members.find(m =>
+                        m.user.username.toLowerCase() === name.toLowerCase() ||
+                        (m.nickname && m.nickname.toLowerCase() === name.toLowerCase()) ||
+                        m.displayName.toLowerCase() === name.toLowerCase()
                     );
+
+                    // ถ้าไม่เจอ → ค้นหาแบบ contains
+                    if (!member) {
+                        member = members.find(m =>
+                            m.user.username.toLowerCase().includes(name.toLowerCase()) ||
+                            (m.nickname && m.nickname.toLowerCase().includes(name.toLowerCase())) ||
+                            m.displayName.toLowerCase().includes(name.toLowerCase())
+                        );
+                    }
+
+                    if (member) {
+                        if (!foundIds.includes(member.id)) {
+                            foundIds.push(member.id);
+                        }
+                    } else {
+                        notFound.push(name);
+                    }
                 }
 
-                await i.editReply({ content: 'เลือกคนที่จะ **เพิ่ม** เข้าไป:', components: rows });
+                if (foundIds.length === 0) {
+                    return i.editReply({ content: '❌ ไม่พบสมาชิกที่ระบุในเซิร์ฟเวอร์', components: [] });
+                }
+
+                // เพิ่ม @mention ต่อท้ายข้อความ
+                let newContent = msg.content;
+                for (const id of foundIds) {
+                    if (!newContent.includes(`<@${id}>`) && !newContent.includes(`<@!${id}>`)) {
+                        newContent += ` <@${id}>`;
+                    }
+                }
+                await msg.edit(newContent);
+
+                let resultMsg = `✅ เพิ่ม ${foundIds.length} คนสำเร็จ`;
+                if (notFound.length > 0) {
+                    resultMsg += `\n⚠️ ไม่พบ: ${notFound.join(', ')}`;
+                }
+                await i.editReply({ content: resultMsg, components: [] });
+                setTimeout(() => i.deleteReply().catch(() => {}), 5000);
+                return;
             }
 
-            // 4. กดปุ่ม ลบคน
+            // =============================================================
+            // 4. ปุ่ม ➖ → แสดง SelectMenu เลือกคนที่จะลบ
+            // =============================================================
             if (i.isButton() && i.customId.startsWith('editag_rem_')) {
                 await i.deferUpdate();
                 const parts = i.customId.split('_');
@@ -248,7 +274,7 @@ module.exports = async (client) => {
                         new ActionRowBuilder().addComponents(
                             new StringSelectMenuBuilder()
                                 .setCustomId(`editag_remove_${msgId}_${channelId}_${idx}`)
-                                .setPlaceholder(`เลือกคนที่จะลบ (ชุดที่ ${Math.floor(idx/25) + 1})`)
+                                .setPlaceholder(`เลือกคนที่จะลบ (ชุดที่ ${Math.floor(idx / 25) + 1})`)
                                 .setMinValues(1)
                                 .setMaxValues(chunk.length)
                                 .addOptions(chunk)
@@ -259,32 +285,9 @@ module.exports = async (client) => {
                 await i.editReply({ content: 'เลือกคนที่จะ **ลบ** ออก:', components: rows });
             }
 
-            // 5. เลือกคนเพิ่ม
-            if (i.isStringSelectMenu() && i.customId.startsWith('editag_addsel_')) {
-                await i.deferUpdate();
-                const parts = i.customId.split('_');
-                const msgId = parts[2];
-                const channelId = parts[3];
-
-                const targetChannel = await client.channels.fetch(channelId).catch(() => null);
-                if (!targetChannel) return i.editReply({ content: '❌ ไม่พบช่องนี้', components: [] });
-
-                const msg = await fetchMessageSafe(targetChannel, msgId);
-                if (!msg) return i.editReply({ content: '❌ ข้อความไม่อยู่แล้ว', components: [] });
-
-                const newIds = i.values;
-                let newContent = msg.content;
-                for (const id of newIds) {
-                    if (!newContent.includes(id)) {
-                        newContent += ` <@${id}>`;
-        }
-                }
-                await msg.edit(newContent);
-                await i.editReply({ content: `✅ เพิ่ม ${newIds.length} คนสำเร็จ`, components: [] });
-                setTimeout(() => i.deleteReply().catch(() => {}), 3000);
-            }
-
-            // 6. เลือกคนลบ
+            // =============================================================
+            // 5. SelectMenu → ลบคนออกจากข้อความ
+            // =============================================================
             if (i.isStringSelectMenu() && i.customId.startsWith('editag_remove_')) {
                 await i.deferUpdate();
                 const parts = i.customId.split('_');
