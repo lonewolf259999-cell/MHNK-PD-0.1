@@ -63,7 +63,7 @@ module.exports = async (client) => {
             (i.isMessageContextMenuCommand() && i.commandName === 'Edit Tags') ||
             (i.isButton() && (i.customId.startsWith('editag_add_') || i.customId.startsWith('editag_rem_'))) ||
             (i.isModalSubmit() && i.customId.startsWith('editag_addmodal_')) ||
-            (i.isStringSelectMenu() && i.customId.startsWith('editag_remove_'));
+            (i.isStringSelectMenu() && (i.customId.startsWith('editag_remove_') || i.customId.startsWith('editag_addsel_')));
         if (!isEditTag) return;
 
         // ✅ Rate limit ก่อนทุกอย่าง
@@ -132,7 +132,7 @@ module.exports = async (client) => {
             };
 
             // =============================================================
-            // 2. ปุ่ม ➕ → เปิด Modal ให้พิมพ์ชื่อคนที่จะเพิ่ม
+            // 2. ปุ่ม ➕ → เปิด Modal ให้พิมพ์รหัสตำรวจ
             //    ⚠️ ห้าม deferUpdate() ก่อน showModal() — Discord ไม่ยอม
             // =============================================================
             if (i.isButton() && i.customId.startsWith('editag_add_')) {
@@ -146,12 +146,12 @@ module.exports = async (client) => {
                     .addComponents(
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
-                                .setCustomId('input_members')
-                                .setLabel('ชื่อ Discord ของคนที่จะเพิ่ม')
+                                .setCustomId('input_codes')
+                                .setLabel('รหัสตำรวจที่ต้องการเพิ่ม')
                                 .setStyle(TextInputStyle.Paragraph)
-                                .setPlaceholder('พิมพ์ชื่อ หรือ @mention คั่นด้วย , หรือขึ้นบรรทัดใหม่')
+                                .setPlaceholder('พิมพ์รหัส เช่น 001, 005, 010 (คั่นด้วย , หรือ enter)')
                                 .setRequired(true)
-                                .setMaxLength(500)
+                                .setMaxLength(200)
                         )
                     );
 
@@ -159,7 +159,7 @@ module.exports = async (client) => {
             }
 
             // =============================================================
-            // 3. ส่ง Modal → ค้นหา + เพิ่มคนในข้อความ
+            // 3. ส่ง Modal → ค้นหาจากรหัส → แสดง SelectMenu ให้ติ๊กเลือก
             // =============================================================
             if (i.isModalSubmit() && i.customId.startsWith('editag_addmodal_')) {
                 await i.deferUpdate();
@@ -173,73 +173,104 @@ module.exports = async (client) => {
                 const msg = await fetchMessageSafe(targetChannel, msgId);
                 if (!msg) return i.editReply({ content: '❌ ข้อความไม่อยู่แล้ว', components: [] });
 
-                // แยกชื่อจาก input (คั่นด้วย , หรือ newline, เอา @ ออก)
-                const rawInput = i.fields.getTextInputValue('input_members').trim();
-                const names = rawInput.split(/[\n,]+/).map(n => n.trim().replace(/^@/, '')).filter(Boolean);
+                // แยกรหัสจาก input (คั่นด้วย , หรือ newline)
+                const rawInput = i.fields.getTextInputValue('input_codes').trim();
+                const codes = rawInput.split(/[\n,]+/).map(c => c.trim()).filter(Boolean);
 
-                if (names.length === 0) {
-                    return i.editReply({ content: '❌ ไม่พบชื่อที่ต้องการเพิ่ม', components: [] });
+                if (codes.length === 0) {
+                    return i.editReply({ content: '❌ ไม่พบรหัสที่ต้องการเพิ่ม', components: [] });
                 }
 
-                // ค้นหาสมาชิกจากชื่อ
+                // ค้นหาสมาชิกจากรหัส (nickname ขึ้นต้นด้วย "{code} [MHNK-PD]")
                 const members = await i.guild.members.fetch();
-                const foundIds = [];
-                const notFound = [];
+                const foundMembers = [];
+                const notFoundCodes = [];
 
-                for (const name of names) {
-                    // ถ้าเป็น ID ตรงๆ
-                    if (/^\d{17,19}$/.test(name)) {
-                        const byId = members.get(name);
-                        if (byId) {
-                            foundIds.push(byId.id);
-                            continue;
-                        }
-                    }
+                for (const code of codes) {
+                    const prefix = `${code} [MHNK-PD]`;
+                    // ค้นหาแบบ startsWith
+                    const matches = members.filter(m => {
+                        const nick = m.nickname || '';
+                        return nick.startsWith(prefix);
+                    });
 
-                    // ค้นหาจาก username, nickname, displayName แบบตรงๆ
-                    let member = members.find(m =>
-                        m.user.username.toLowerCase() === name.toLowerCase() ||
-                        (m.nickname && m.nickname.toLowerCase() === name.toLowerCase()) ||
-                        m.displayName.toLowerCase() === name.toLowerCase()
-                    );
-
-                    // ถ้าไม่เจอ → ค้นหาแบบ contains
-                    if (!member) {
-                        member = members.find(m =>
-                            m.user.username.toLowerCase().includes(name.toLowerCase()) ||
-                            (m.nickname && m.nickname.toLowerCase().includes(name.toLowerCase())) ||
-                            m.displayName.toLowerCase().includes(name.toLowerCase())
-                        );
-                    }
-
-                    if (member) {
-                        if (!foundIds.includes(member.id)) {
-                            foundIds.push(member.id);
+                    if (matches.size > 0) {
+                        for (const [, m] of matches) {
+                            // ป้องกันซ้ำ
+                            if (!foundMembers.some(fm => fm.id === m.id)) {
+                                // หาชื่อแบบ readable
+                                const codeMatch = (m.nickname || '').match(/^\d+\s+\[MHNK-PD\]\s+(.+)/);
+                                const displayLabel = codeMatch ? `${code} - ${codeMatch[1]}` : `${code} - ${m.displayName}`;
+                                foundMembers.push({ id: m.id, label: displayLabel });
+                            }
                         }
                     } else {
-                        notFound.push(name);
+                        notFoundCodes.push(code);
                     }
                 }
 
-                if (foundIds.length === 0) {
-                    return i.editReply({ content: '❌ ไม่พบสมาชิกที่ระบุในเซิร์ฟเวอร์', components: [] });
+                if (foundMembers.length === 0) {
+                    return i.editReply({
+                        content: `❌ ไม่พบสมาชิกรหัส: ${notFoundCodes.join(', ')}`,
+                        components: []
+                    });
                 }
 
-                // เพิ่ม @mention ต่อท้ายข้อความ
+                // สร้าง SelectMenu ให้ติ๊กเลือก (25 คนต่อช่อง)
+                const options = foundMembers.map(fm => ({
+                    label: fm.label,
+                    value: fm.id
+                }));
+
+                const rows = [];
+                for (let idx = 0; idx < options.length; idx += 25) {
+                    const chunk = options.slice(idx, idx + 25);
+                    rows.push(
+                        new ActionRowBuilder().addComponents(
+                            new StringSelectMenuBuilder()
+                                .setCustomId(`editag_addsel_${msgId}_${channelId}_${idx}`)
+                                .setPlaceholder(`เลือกคนที่จะเพิ่ม (ชุดที่ ${Math.floor(idx / 25) + 1})`)
+                                .setMinValues(1)
+                                .setMaxValues(chunk.length)
+                                .addOptions(chunk)
+                        )
+                    );
+                }
+
+                await i.editReply({
+                    content: `✅ พบ ${foundMembers.length} คน${notFoundCodes.length > 0 ? `\n⚠️ ไม่พบรหัส: ${notFoundCodes.join(', ')}` : ''}\n**เลือกคนที่จะเพิ่ม:**`,
+                    components: rows
+                });
+                return;
+            }
+
+            // =============================================================
+            // 3b. SelectMenu ➕ → เพิ่มคนที่เลือกเข้าไปในข้อความ
+            // =============================================================
+            if (i.isStringSelectMenu() && i.customId.startsWith('editag_addsel_')) {
+                await i.deferUpdate();
+                const parts = i.customId.split('_');
+                const msgId = parts[2];
+                const channelId = parts[3];
+
+                const targetChannel = await client.channels.fetch(channelId).catch(() => null);
+                if (!targetChannel) return i.editReply({ content: '❌ ไม่พบช่องนี้', components: [] });
+
+                const msg = await fetchMessageSafe(targetChannel, msgId);
+                if (!msg) return i.editReply({ content: '❌ ข้อความไม่อยู่แล้ว', components: [] });
+
+                const selectedIds = i.values;
                 let newContent = msg.content;
-                for (const id of foundIds) {
+                let added = 0;
+                for (const id of selectedIds) {
                     if (!newContent.includes(`<@${id}>`) && !newContent.includes(`<@!${id}>`)) {
                         newContent += ` <@${id}>`;
+                        added++;
                     }
                 }
                 await msg.edit(newContent);
-
-                let resultMsg = `✅ เพิ่ม ${foundIds.length} คนสำเร็จ`;
-                if (notFound.length > 0) {
-                    resultMsg += `\n⚠️ ไม่พบ: ${notFound.join(', ')}`;
-                }
-                await i.editReply({ content: resultMsg, components: [] });
-                setTimeout(() => i.deleteReply().catch(() => {}), 5000);
+                await i.editReply({ content: `✅ เพิ่ม ${added} คนสำเร็จ`, components: [] });
+                setTimeout(() => i.deleteReply().catch(() => {}), 3000);
                 return;
             }
 
