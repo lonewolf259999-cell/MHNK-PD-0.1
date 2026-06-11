@@ -175,7 +175,7 @@ module.exports = async (client) => {
 
                 // แยกรหัสจาก input (คั่นด้วย , หรือ newline)
                 const rawInput = i.fields.getTextInputValue('input_codes').trim();
-                const codes = rawInput.split(/[\n,]+/).map(c => c.trim()).filter(Boolean);
+                const codes = rawInput.split(/[\s,]+/).map(c => c.trim()).filter(Boolean);
 
                 if (codes.length === 0) {
                     return i.editReply({ content: '❌ ไม่พบรหัสที่ต้องการเพิ่ม', components: [] });
