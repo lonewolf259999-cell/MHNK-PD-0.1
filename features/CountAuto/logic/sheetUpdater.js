@@ -4,13 +4,20 @@
 
 const { safeGetValues, safeUpdateValues } = require('../../../utils/apiSafe');
 
+function normalizeName(str) {
+    return (str || '').trim().toLowerCase();
+}
+
 function findUserRow(rows, person) {
-    // ใช้ ID column (index 0) ก่อน ถ้าไม่เจอค่อยใช้ username
+    const nick = normalizeName(person.nickname);
+    const user = normalizeName(person.username);
     return rows.findIndex(
         (r, idx) =>
             idx >= 1 &&
             r[0] &&
-            (r[0] === person.nickname || r[0] === person.username || r[1] === person.username)
+            (normalizeName(r[0]).includes(nick) || 
+             normalizeName(r[0]).includes(user) ||
+             normalizeName(r[1]) === user)
     );
 }
 

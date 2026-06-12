@@ -7,8 +7,6 @@
 const { SlashCommandBuilder, Events, MessageFlags } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
 const rateLimiter = require('../../utils/rateLimiter');
-const { handleInteractionError } = require('../../utils/interactionSafe');
-
 module.exports = async (client) => {
     // ✅ ลงทะเบียน Slash Command
     client.once(Events.ClientReady, async () => {

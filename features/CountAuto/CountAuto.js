@@ -89,11 +89,8 @@ module.exports = async (client) => {
             if (!sheetConfig.isLoaded() || !config.CHANNELS) return;
 
             if (message.partial) {
-                const fetched = await safeFetchMessage(message.channel, message.id);
-                if (!fetched) {
-                    console.error('❌ [CountAuto] ไม่สามารถ fetch ข้อความที่ถูกลบ');
-                    return;
-                }
+                await safeFetchMessage(message.channel, message.id);
+                // ถ้า fetch ไม่เจอ message.partial → ยังพอมีข้อมูล message.id ใช้ log ได้
             }
             const log = loadLog(LOG_FILE);
             const tagList = log[message.id];
@@ -117,7 +114,7 @@ module.exports = async (client) => {
             if (newM.partial) {
                 const fetched = await safeFetchMessage(newM.channel, newM.id);
                 if (!fetched) {
-                    console.error('❌ [CountAuto] ไม่สามารถ fetch ข้อความที่ถูกแก้ไข');
+                    console.warn('⚠️ [CountAuto] fetch ข้อความที่ถูกแก้ไขไม่สำเร็จ — ข้าม (แต้มคงเดิม)');
                     return;
                 }
             }

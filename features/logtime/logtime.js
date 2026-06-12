@@ -1,6 +1,6 @@
 // =================================================================
 // ⏱️ features/logtime/logtime.js — บันทึกเวลาเข้าเวร → NamePD
-// คอลัมน์: หาแถว=D | ไม่เจอ→ลงชื่อที่ D แถว 300+ | ออกงาน=J,K | Steam=M | สะสม=O–U
+// คอลัมน์: หาแถว=D | เจอ→J,K,M | ไม่เจอ→X(ชื่อ),Y(Steam) แถว 3+
 // =================================================================
 // ✅ เพิ่มความเร็ว: อ่านชีตครั้งเดียว → process ใน RAM → batch update
 //    - 1 คน: อัปเดททันที (2 API calls)
@@ -14,12 +14,14 @@ const {
     safeBatchUpdateValues
 } = require('../../utils/apiSafe');
 
-const NEW_ROW_MIN = 300;
+const NEW_ROW_MIN = 3;
 const COL = {
     FIND_NAME: 'D',
     OUT_DATE: 'J',
     OUT_TIME: 'K',
-    STEAM: 'M'
+    STEAM: 'M',
+    NEW_NAME: 'X',
+    NEW_STEAM: 'Y'
 };
 
 const LOG_QUEUE_MAX = 100;
@@ -27,7 +29,7 @@ const LOG_QUEUE_MAX = 100;
 const logQueue = [];
 let isProcessing = false;
 
-// ✅ Cache ชีตทั้งก้อน (D:U) — refresh ทุกครั้งก่อน process batch
+// ✅ Cache ชีตทั้งก้อน (D:Y) — refresh ทุกครั้งก่อน process batch
 // ⚠️ Module-level mutable state: sheetCache ถูกแก้ไขโดย processQueue()
 //    และ processSingleInRam() อ่านจาก cache นี้
 //    ถ้ามี concurrent operation อาจ读到ข้อมูลเก่า — แต่ logtime ใช้ queue
@@ -35,7 +37,7 @@ let isProcessing = false;
 let sheetCache = {
     spreadsheetId: null,
     sheetName: null,
-    rows: null,     // raw array ของชีต (D:U)
+    rows: null,     // raw array ของชีต (D:Y)
     loaded: false
 };
 
@@ -103,10 +105,6 @@ function matchBackward(logName, dCell) {
     return false;
 }
 
-function rowNameMatches(logName, dCell) {
-    return matchForward(logName, dCell) || matchBackward(logName, dCell);
-}
-
 /**
  * ✅ หาแถวจาก cache (ไม่ต้องเรียก API)
  * @param {string} name
@@ -115,13 +113,14 @@ function rowNameMatches(logName, dCell) {
 function findRowFromCache(name, steamId) {
     const rows = sheetCache.rows;
     if (!rows) return { row: NEW_ROW_MIN, isNew: true };
+    const normalizedName = normalizeName(name);
 
     // Pass 0: Steam ID match — priority สูงสุด
     // ถ้า log มี steam ID → หาแถวที่ column M ตรงกัน
     if (steamId) {
         const steamNormalized = normalizeName(steamId);
         for (let idx = 2; idx < rows.length; idx++) {
-            const mCell = rows[idx]?.[9]; // D:U → M = index 9 (D=0, E=1, ... M=9)
+            const mCell = rows[idx]?.[9]; // D:Y → M = index 9 (D=0, E=1, ... M=9, X=20, Y=21)
             if (mCell && normalizeName(mCell) === steamNormalized) {
                 // เจอ steam ID ตรง → เช็ค column D ซ้ำเพื่อยืนยัน (กันกรณี steam ID ซ้ำ)
                 const dCell = rows[idx]?.[0];
@@ -145,7 +144,6 @@ function findRowFromCache(name, steamId) {
     // เลือกแถวที่ match prefix ยาวที่สุด เพื่อป้องกัน match แถวที่มีชื่อสั้นกว่าผิด
     let bestRow = null;
     let bestLen = 0;
-    const normalizedName = normalizeName(name);
     for (let idx = 2; idx < rows.length; idx++) {
         const dCell = rows[idx]?.[0];
         if (!dCell) continue;
@@ -171,27 +169,35 @@ function findRowFromCache(name, steamId) {
     }
     if (bestRow) return { row: bestRow, isNew: false };
 
-    // ไม่เจอเลย → หาแถวว่าง D ตั้งแต่ 300
+    // Pass 3: Forward match ใน X column (สำหรับคนที่เคยถูก log ไว้แล้ว)
+    for (let idx = NEW_ROW_MIN - 1; idx < rows.length; idx++) {
+        const xCell = rows[idx]?.[20]; // D:Y → X = index 20
+        if (xCell && normalizeName(xCell).includes(normalizedName)) {
+            return { row: idx + 1, isNew: false };
+        }
+    }
+
+    // ไม่เจอเลย → หาแถวว่าง X (index 20)
     for (let row = NEW_ROW_MIN; row <= rows.length; row++) {
-        const dCell = rows[row - 1]?.[0];
-        if (!dCell || !String(dCell).trim()) {
+        const xCell = rows[row - 1]?.[20]; // D:Y → D=0, E=1, ..., X=20, Y=21
+        if (!xCell || !String(xCell).trim()) {
             return { row, isNew: true };
         }
     }
 
-    // โซน 300+ เต็ม → แถวถัดไป
-    return { row: Math.max(rows.length + 1, NEW_ROW_MIN), isNew: true };
+    // แถวสุดท้าย → ใช้แถวถัดไป
+    return { row: rows.length + 1, isNew: true };
 }
 
 /**
- * ✅ อ่านแถวล่าสุดของคนๆ นั้นจาก cache
+ * ✅ อ่านแถวล่าสุดของคนๆ นั้นจาก cache (แถว O-U สำหรับ accumulate)
  */
 function getAccumulatedMinutes(col, row) {
     if (!sheetCache.rows) return 0;
     const rowData = sheetCache.rows[row - 1];
     if (!rowData) return 0;
 
-    // col index จาก range D:U → D=0, E=1, O=11, P=12, Q=13, R=14, S=15, T=16, U=17
+    // col index จาก range D:Y → D=0, E=1, O=11, P=12, Q=13, R=14, S=15, T=16, U=17
     const colIndex = col.charCodeAt(0) - 68; // D=0, E=1, ...
     const cellVal = rowData[colIndex] || '00:00';
     if (!cellVal.includes(':')) return 0;
@@ -209,57 +215,63 @@ function processSingleInRam(info) {
     const { row, isNew } = findRowFromCache(name, id);
     const updates = [];
 
-    // 1. เขียน D (ถ้าใหม่)
+    // 1. ถ้าเจอคนเดิม → เขียน J:K (เวลาออก) + M (Steam ID)
+    //    ถ้าเป็นคนใหม่ → เขียน X (ชื่อ) + Y (Steam ID)
     if (isNew) {
-        updates.push({ range: `${sheetCache.sheetName}!${COL.FIND_NAME}${row}`, values: [[name]] });
-    }
-
-    // 2. เขียน J:K (วันที่ออก + เวลาออก)
-    updates.push({
-        range: `${sheetCache.sheetName}!${COL.OUT_DATE}${row}:${COL.OUT_TIME}${row}`,
-        values: [[date, time]]
-    });
-
-    // 3. เขียน M (Steam ID)
-    if (id) {
-        updates.push({ range: `${sheetCache.sheetName}!${COL.STEAM}${row}`, values: [[id]] });
-    }
-
-    // 4. accumulate เวลา
-    const totalMinutes = timeToMinutes(duration);
-    let logDayMsg = '';
-
-    if (inDate && date && inDate !== date && inTime) {
-        const [inH, inM, inS] = inTime.split(':').map(Number);
-        const minutesInFirstDay = 1440 - ((inH * 60) + inM + (inS / 60));
-        const minutesInSecondDay = Math.max(0, totalMinutes - minutesInFirstDay);
-
-        const colStart = getColumnByDate(inDate);
-        const colEnd = getColumnByDate(date);
-
-        if (colStart) {
-            const oldMin = getAccumulatedMinutes(colStart, row);
-            const newTotal = oldMin + minutesInFirstDay;
-            updates.push({ range: `${sheetCache.sheetName}!${colStart}${row}`, values: [[minutesToHHmm(newTotal)]] });
+        updates.push({ range: `${sheetCache.sheetName}!${COL.NEW_NAME}${row}`, values: [[name]] });
+        if (id) {
+            updates.push({ range: `${sheetCache.sheetName}!${COL.NEW_STEAM}${row}`, values: [[id]] });
         }
-        if (colEnd) {
-            const oldMin = getAccumulatedMinutes(colEnd, row);
-            const newTotal = oldMin + minutesInSecondDay;
-            updates.push({ range: `${sheetCache.sheetName}!${colEnd}${row}`, values: [[minutesToHHmm(newTotal)]] });
-        }
-        logDayMsg = `(แยก: ${inDate}=${Math.round(minutesInFirstDay)}น., ${date}=${Math.round(minutesInSecondDay)}น.)`;
     } else {
-        const targetCol = getColumnByDate(date);
-        if (targetCol) {
-            const oldMin = getAccumulatedMinutes(targetCol, row);
-            const newTotal = oldMin + totalMinutes;
-            updates.push({ range: `${sheetCache.sheetName}!${targetCol}${row}`, values: [[minutesToHHmm(newTotal)]] });
-            logDayMsg = `(คอลัมน์ ${targetCol})`;
+        updates.push({
+            range: `${sheetCache.sheetName}!${COL.OUT_DATE}${row}:${COL.OUT_TIME}${row}`,
+            values: [[date, time]]
+        });
+        if (id) {
+            updates.push({ range: `${sheetCache.sheetName}!${COL.STEAM}${row}`, values: [[id]] });
         }
     }
 
-    const rowNote = isNew ? `แถว ${row} (ใหม่)` : `แถว ${row}`;
-    return { updates, logMsg: `${name} [${duration || '-'}] ${rowNote} ${logDayMsg}` };
+    // 4. accumulate เวลา (O-U) — สำหรับคนที่เจอเท่านั้น
+    if (!isNew) {
+        const totalMinutes = timeToMinutes(duration);
+        let logDayMsg = '';
+
+        if (inDate && date && inDate !== date && inTime) {
+            const [inH, inM, inS] = inTime.split(':').map(Number);
+            const minutesInFirstDay = 1440 - ((inH * 60) + inM + (inS / 60));
+            const minutesInSecondDay = Math.max(0, totalMinutes - minutesInFirstDay);
+
+            const colStart = getColumnByDate(inDate);
+            const colEnd = getColumnByDate(date);
+
+            if (colStart) {
+                const oldMin = getAccumulatedMinutes(colStart, row);
+                const newTotal = oldMin + minutesInFirstDay;
+                updates.push({ range: `${sheetCache.sheetName}!${colStart}${row}`, values: [[minutesToHHmm(newTotal)]] });
+            }
+            if (colEnd) {
+                const oldMin = getAccumulatedMinutes(colEnd, row);
+                const newTotal = oldMin + minutesInSecondDay;
+                updates.push({ range: `${sheetCache.sheetName}!${colEnd}${row}`, values: [[minutesToHHmm(newTotal)]] });
+            }
+            logDayMsg = `(แยก: ${inDate}=${Math.round(minutesInFirstDay)}น., ${date}=${Math.round(minutesInSecondDay)}น.)`;
+        } else {
+            const targetCol = getColumnByDate(date);
+            if (targetCol) {
+                const oldMin = getAccumulatedMinutes(targetCol, row);
+                const newTotal = oldMin + totalMinutes;
+                updates.push({ range: `${sheetCache.sheetName}!${targetCol}${row}`, values: [[minutesToHHmm(newTotal)]] });
+                logDayMsg = `(คอลัมน์ ${targetCol})`;
+            }
+        }
+
+        const rowNote = `แถว ${row}`;
+        return { updates, logMsg: `${name} [${duration || '-'}] ${rowNote} ${logDayMsg}` };
+    }
+
+    const rowNote = isNew ? `แถว ${row} (ใหม่ที่ X:Y)` : `แถว ${row}`;
+    return { updates, logMsg: `${name} [${duration || '-'}] ${rowNote}` };
 }
 
 /**
@@ -275,7 +287,7 @@ async function flushUpdates(updates) {
 }
 
 /**
- * ✅ อ่านชีต D:U ทั้งก้อน → cache
+ * ✅ อ่านชีต D:Y ทั้งก้อน → cache (ครอบคลุม X, Y)
  */
 async function refreshSheetCache() {
     const { spreadsheetId, sheetName } = getRegistryTarget();
@@ -283,7 +295,7 @@ async function refreshSheetCache() {
         throw new Error('REGISTRY_SPREADSHEET_ID หรือ REGISTRY_SHEET_NAME ยังไม่ตั้งค่า');
     }
 
-    const resp = await safeGetValues(spreadsheetId, `${sheetName}!D:U`, {
+    const resp = await safeGetValues(spreadsheetId, `${sheetName}!D:Y`, {
         operation: 'logtime-refreshCache'
     });
     

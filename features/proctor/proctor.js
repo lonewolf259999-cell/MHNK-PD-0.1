@@ -5,7 +5,6 @@
 // → ส่ง Embed ไปห้อง Proctor ที่กำหนดใน Google Sheet
 // =================================================================
 
-const { EmbedBuilder } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
 const { safeSendMessage, safeReact } = require('../../utils/discordSafe');
 

@@ -51,11 +51,6 @@ function hasExemptRole(member) {
     return CONFIG.EXEMPT_ROLES.some(roleId => member.roles.cache.has(roleId));
 }
 
-// ✅ ตรวจสอบว่าสมาชิกมี TRIGGER_ROLES หรือไม่
-function hasTriggerRole(member) {
-    return CONFIG.TRIGGER_ROLES.some(roleId => member.roles.cache.has(roleId));
-}
-
 // ✅ ลบ prefix จากชื่อ (เช่น "01 [MHNK-PD] Darin Giotto" → "Darin Giotto")
 function stripPrefix(name) {
     if (!name) return name;
