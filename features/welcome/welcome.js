@@ -85,25 +85,8 @@ module.exports = async (client) => {
 
         if (interaction.isButton()) {
             if (interaction.customId === 'btn_register_pd') {
-
-                    // ✅ Rate limiter: จำกัดการกดปุ่มลงทะเบียน
-                    const limitCheck = rateLimiter.check(interaction.user.id, 'register');
-                    if (!limitCheck.allowed) {
-                        const seconds = Math.ceil(limitCheck.resetIn / 1000);
-                    return await interaction.reply({
-                            content: `⏳ กรุณารอ **${seconds}** วินาที ก่อนลงทะเบียนใหม่`,
-                        flags: [MessageFlags.Ephemeral]
-                    });
-                }
-
-                    const registered = await isAlreadyRegistered(interaction.user.id);
-                    if (registered) {
-                        return await interaction.reply({
-                            content: '❌ คุณลงทะเบียนไปแล้ว ไม่สามารถลงทะเบียนซ้ำได้ครับ!',
-                            flags: [MessageFlags.Ephemeral]
-                        });
-                    }
-
+                // ✅ แสดง Modal ทันที — ไม่เช็ค API ที่นี่ (ป้องกัน interaction timeout)
+                //    rate limit + เช็คซ้ำจะทำตอนกด submit แทน
                 const modal = new ModalBuilder()
                     .setCustomId('modal_register_pd')
                     .setTitle('ฟอร์มลงทะเบียนข้อมูลตำรวจ');
@@ -141,15 +124,32 @@ module.exports = async (client) => {
 
                 try {
                     await interaction.showModal(modal);
-        } catch (err) {
+                } catch (err) {
                     if (err.code !== 'InteractionAlreadyReplied') throw err;
-        }
+                }
             }
         }
 
         if (interaction.isModalSubmit()) {
             if (interaction.customId === 'modal_register_pd') {
                 await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+                // ✅ เช็ค rate limit (ย้ายมาจากตอนกดปุ่ม)
+                const limitCheck = rateLimiter.check(interaction.user.id, 'register');
+                if (!limitCheck.allowed) {
+                    const seconds = Math.ceil(limitCheck.resetIn / 1000);
+                    return await interaction.editReply({
+                        content: `⏳ กรุณารอ **${seconds}** วินาที ก่อนลงทะเบียนใหม่`
+                    });
+                }
+
+                // ✅ เช็คซ้ำว่าลงทะเบียนไปแล้วหรือยัง (ย้ายมาจากตอนกดปุ่ม)
+                const alreadyRegistered = await isAlreadyRegistered(interaction.user.id);
+                if (alreadyRegistered) {
+                    return await interaction.editReply({
+                        content: '❌ คุณลงทะเบียนไปแล้ว ไม่สามารถลงทะเบียนซ้ำได้ครับ!'
+                    });
+                }
 
                 // ดึงค่าจากทั้ง 3 ช่องที่ผู้ใช้กรอกมา
                 const icName = interaction.fields.getTextInputValue('input_ic_name').trim();

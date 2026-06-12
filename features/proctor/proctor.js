@@ -94,16 +94,13 @@ function setupListener(client) {
 }
 
 // ===== Export =====
+// ✅ Export เป็น static methods ทั้งหมด — resendMissed.js เรียกใช้โดยตรง
+//    featureHandler เรียก module.exports(client) เพื่อ setup listener
 const proctorModule = (client) => {
     setupListener(client);
-    return {
-        forwardProctorMessage: (message) => forwardProctorMessage(message, client),
-        isProctorEmbed,
-        hasBotCheckReaction: (message) => hasBotCheckReaction(message, client)
-    };
 };
 
-// ✅ Static methods — ใช้โดย resendMissed.js โดยไม่ต้องผ่าน factory
+// Static methods — ใช้โดย resendMissed.js และ feature อื่นๆ
 proctorModule.forwardProctorMessage = forwardProctorMessage;
 proctorModule.isProctorEmbed = isProctorEmbed;
 proctorModule.hasBotCheckReaction = hasBotCheckReaction;

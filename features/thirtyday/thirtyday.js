@@ -6,6 +6,7 @@ const { SlashCommandBuilder, Events, MessageFlags } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
 const { safeGetValues, safeUpdateValues, safeClearValues } = require('../../utils/apiSafe');
 const { handleInteractionError } = require('../../utils/interactionSafe');
+const { getColumnIndex } = require('../welcome/sheetManager');
 
 // =====================================================
 // ⚙️ ตั้งค่า在这里 — แก้ได้เลย
@@ -38,15 +39,6 @@ const CONFIG = {
 };
 // =====================================================
 
-// ✅ แปลงคอลัมน์ letter เป็น index (A=0, B=1, ...)
-function colToIndex(col) {
-    let index = 0;
-    for (let i = 0; i < col.length; i++) {
-        index = index * 26 + (col.charCodeAt(i) - 64);
-    }
-    return index - 1;
-}
-
 // ✅ ดึง Discord ID จากคอลัมน์ E
 function extractUserIdFromCell(cell) {
     if (!cell) return null;
@@ -70,7 +62,13 @@ function stripPrefix(name) {
     return String(name).replace(/^\d+\s*\[MHNK-PD\]\s*/i, '').trim();
 }
 
-// ✅ ย้ายข้อมูลจาก NamePD → OutDC (อ่าน B:M เขียน B:M เหมือน sheetManager.js)
+// ✅ ย้ายข้อมูลจาก NamePD → OutDC (อ่าน B:M เขียน B:M)
+// ⚠️ logic คล้ายกับ _executeMoveMember() ใน features/welcome/sheetManager.js
+//    แต่มีข้อแตกต่าง:
+//    - รับ rowData ที่เป็น A:M array มา map เป็น B:M
+//    - เพิ่มเหตุผลในคอลัมน์ REASON_COLUMN (N)
+//    - ไม่ clear ข้อมูลใน NamePD (clearNamePDRow เป็นฟังก์ชันแยกต่างหาก)
+//    ถ้าจะ Refactor ควรย้าย merge logic นี้ไป sheetManager.js ในอนาคต
 async function moveToOutDC(guild, spreadsheetId, sheetName, outSheetName, rowData, reason) {
     // 1. ดึงข้อมูล OutDC ปัจจุบัน
     const responseOut = await safeGetValues(spreadsheetId, `${outSheetName}!B:B`, {
@@ -144,8 +142,8 @@ async function checkAndProcess(client, interaction) {
     });
     const rows = response.data.values || [];
 
-    // 2. หาคอลัมน์ L index
-    const dayColIdx = colToIndex(CONFIG.DAY_COLUMN);
+    // 2. หาคอลัมน์ L index (ใช้ getColumnIndex จาก sheetManager)
+    const dayColIdx = getColumnIndex(CONFIG.DAY_COLUMN);
 
     const processed = [];
     const skipped = [];

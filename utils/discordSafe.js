@@ -9,6 +9,7 @@
  * - 429 Too Many Requests = backoff by retry_after seconds
  */
 
+const { Collection } = require('discord.js');
 const RATE_LIMIT_STORE = new Map();
 const GLOBAL_COOLDOWN_MS = 100; // 100ms between commands globally
 let lastRequestTime = 0;
@@ -139,13 +140,13 @@ async function safeFetchMessages(channel, options = {}) {
             }
             if (error.code === 50001 || error.code === 50013) {
                 console.warn(`⚠️ [discordSafe] Missing permissions for channel ${channel.id}`);
-                return new (require('discord.js').Collection)();
+                return new Collection();
             }
             if (attempt === maxRetries) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
     }
-    return new (require('discord.js').Collection)();
+    return new Collection();
 }
 
 /**

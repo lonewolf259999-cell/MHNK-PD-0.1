@@ -106,6 +106,12 @@ setConfig('edittag', {
     message: 'แก้ไขแท็กบ่อยเกินไป กรุณารอ 10 วินาที'
 });
 
+setConfig('reload', {
+    windowMs: 30000,
+    maxRequests: 3,
+    message: 'รีโหลดบ่อยเกินไป กรุณารอ 30 วินาที'
+});
+
 module.exports = {
     setConfig,
     check,

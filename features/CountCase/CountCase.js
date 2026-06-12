@@ -269,5 +269,7 @@ async function runManualRecount(client, interaction) {
 }
 
 // CountCase ไม่ต้องลง event listener ในตัวเอง
+// featureHandler จะเรียก module.exports() แต่เป็นฟังก์ชันเปล่า — ไม่เกิดผลเสีย
+// จริงๆ แล้ว feature นี้ทำงานผ่าน configPanel → actions.js → runManualRecount
 module.exports = () => {};
 module.exports.runManualRecount = runManualRecount;

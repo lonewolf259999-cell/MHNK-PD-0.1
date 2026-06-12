@@ -2,7 +2,6 @@
 // 💾 config/actions.js — Logic บันทึกต่างๆ ลง Sheet
 // =================================================================
 
-const { EmbedBuilder } = require('discord.js');
 const sheetConfig = require('../utils/sheetConfig');
 const { createPanelEmbed, buildPanelComponents } = require('./panelBuilder');
 const countCase = require('../features/CountCase/CountCase');

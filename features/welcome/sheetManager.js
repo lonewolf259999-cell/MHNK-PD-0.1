@@ -281,5 +281,6 @@ module.exports = {
     moveMemberToOutSheet,
     isAlreadyRegistered,
     findMemberByDiscordId,
-    updateMemberNameInSheet
+    updateMemberNameInSheet,
+    getColumnIndex
 };

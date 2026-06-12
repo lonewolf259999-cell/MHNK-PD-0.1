@@ -6,7 +6,6 @@
 
 const { SlashCommandBuilder, Events, MessageFlags } = require('discord.js');
 const sheetConfig = require('../../utils/sheetConfig');
-const logger = require('../../utils/logger');
 const rateLimiter = require('../../utils/rateLimiter');
 const { handleInteractionError } = require('../../utils/interactionSafe');
 
@@ -85,7 +84,7 @@ module.exports = async (client) => {
 
             await interaction.editReply({ embeds: [successEmbed] });
 
-            logger.info(`Config reloaded by ${interaction.user.tag}`, {
+            console.log(`✅ [RELOAD] Config reloaded by ${interaction.user.tag}`, {
                 userId: interaction.user.id,
                 guildId: interaction.guildId
             });
@@ -100,8 +99,7 @@ module.exports = async (client) => {
 
             await interaction.editReply({ embeds: [errorEmbed] });
 
-            logger.error('Config reload failed', {
-                error: error.message,
+            console.error(`❌ [RELOAD] Config reload failed: ${error.message}`, {
                 userId: interaction.user.id
             });
         }

@@ -9,18 +9,6 @@ const { safeSendMessage, safeReact } = require('../../utils/discordSafe');
 // 🔒 Lock ป้องกันประมวลผลข้อความเดิมพร้อมกัน (race condition)
 const processingLocks = new Set();
 
-// 🔄 Retry utility
-async function retryAsync(fn, retries = 3, delay = 1000) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            return await fn();
-        } catch (err) {
-            if (i === retries - 1) throw err;
-            await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
-        }
-    }
-}
-
 // ✅ ดึงข้อความจาก message (content + embeds)
 function extractContent(message) {
     const content = message.content ? message.content.trim() : "";
@@ -143,16 +131,14 @@ async function processAndSend(message, options = {}) {
             )
             .setTimestamp();
 
-        // 🔄 Retry การส่ง (ใช้ safeSendMessage)
-        await retryAsync(async () => {
-            await safeSendMessage(sendChannel, { content: tagText, embeds: [embed] });
-        });
+        // 🔄 ส่ง (safeSendMessage มี retry ในตัวอยู่แล้ว)
+        await safeSendMessage(sendChannel, { content: tagText, embeds: [embed] });
 
         console.log(`✅ [BYPD System] ส่งข้อมูลเรียบร้อย ID: ${messageId}`);
 
-        // ✅ React (ไม่ block flow ถ้า error) - ใช้ safeReact
+        // ✅ React (ไม่ block flow ถ้า error) - safeReact มี retry ในตัวอยู่แล้ว
         try {
-            await retryAsync(() => safeReact(message, '✅'));
+            await safeReact(message, '✅');
         } catch (reactErr) {
             console.error(`⚠️ [processAndSend] React ล้มเหลว ID ${messageId}:`, reactErr.message);
         }

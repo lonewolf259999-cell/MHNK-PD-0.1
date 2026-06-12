@@ -28,6 +28,10 @@ const logQueue = [];
 let isProcessing = false;
 
 // ✅ Cache ชีตทั้งก้อน (D:U) — refresh ทุกครั้งก่อน process batch
+// ⚠️ Module-level mutable state: sheetCache ถูกแก้ไขโดย processQueue()
+//    และ processSingleInRam() อ่านจาก cache นี้
+//    ถ้ามี concurrent operation อาจ读到ข้อมูลเก่า — แต่ logtime ใช้ queue
+//    ทำให้ทีละรายการ จึงปลอดภัยในทางปฏิบัติ
 let sheetCache = {
     spreadsheetId: null,
     sheetName: null,

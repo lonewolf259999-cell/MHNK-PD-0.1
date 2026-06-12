@@ -128,8 +128,6 @@ async function safeSheetsCall(apiCall, options = {}) {
                 console.error(`❌ [apiSafe] ${operation} failed after ${maxRetries} attempts:`, error.message);
                 throw error;
             }
-
-            throw error;
         }
     }
 }

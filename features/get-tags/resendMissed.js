@@ -57,8 +57,8 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         // =============================================================
         // กรอง BYPD + Proctor ที่ยังไม่มี ✅
         // =============================================================
-        const toSendBypd = [];
-        const toSendProctor = [];
+        const bypdToSend = [];
+        const proctorToSend = [];
 
         for (const msg of batch) {
             const content = extractContent(msg);
@@ -69,13 +69,13 @@ async function runResendMissed(client, interaction, abortSignal = null) {
             const hasCheckmark = msg.reactions.cache.some(r => r.emoji.name === '✅');
 
             if (isBypd && !hasCheckmark) {
-                toSendBypd.push(msg);
+                bypdToSend.push(msg);
             } else if (isBypd && hasCheckmark) {
                 bypdAlreadySent++;
             }
 
             if (isProctor && !hasCheckmark) {
-                toSendProctor.push(msg);
+                proctorToSend.push(msg);
             } else if (isProctor && hasCheckmark) {
                 proctorAlreadySent++;
             }
@@ -84,7 +84,7 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         // =============================================================
         // ส่ง BYPD
         // =============================================================
-        for (const msg of toSendBypd) {
+        for (const msg of bypdToSend) {
             if (abortSignal?.aborted) { stopped = true; break; }
             try {
                 const sent = await processAndSendBypd.processAndSend(msg);
@@ -101,7 +101,7 @@ async function runResendMissed(client, interaction, abortSignal = null) {
         // =============================================================
         // ส่ง Proctor
         // =============================================================
-        for (const msg of toSendProctor) {
+        for (const msg of proctorToSend) {
             if (abortSignal?.aborted) { stopped = true; break; }
             try {
                 const sent = await proctorModule.forwardProctorMessage(msg, client);

@@ -1,6 +1,10 @@
 // =================================================================
 // 🧪 testchat-standalone.js — รันเฉพาะฟีเจอร์ testchat โดยไม่ต้องโหลดอย่างอื่น
 // =================================================================
+// ⚠️ ไฟล์นี้ตั้งใจให้รันแยกต่างหาก (node testchat-standalone.js)
+//    มี Discord Client + intents ของตัวเอง — ไม่ได้ใช้ร่วมกับ index.js
+//    ใช้สำหรับ debug/test embed เท่านั้น ไม่ใช่ส่วนหนึ่งของ bot หลัก
+// =================================================================
 // รันด้วย: node testchat-standalone.js
 
 const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
